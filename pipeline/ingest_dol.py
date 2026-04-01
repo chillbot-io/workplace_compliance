@@ -32,9 +32,9 @@ BRONZE_DIR = Path(os.environ.get("BRONZE_DIR", "/data/bronze"))
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 PAGE_SIZE = 200
-RATE_LIMIT_DELAY = 2.0  # seconds between requests — DOL v4 rate limits aggressively
+RATE_LIMIT_DELAY = 4.0  # seconds between requests — DOL v4 has undocumented rate limits (~15 req/min safe)
 RATE_LIMIT_RETRIES = 5  # max retries on 429
-RATE_LIMIT_BACKOFF = 30  # seconds to wait on 429 before retrying
+RATE_LIMIT_BACKOFF = 60  # seconds to wait on 429 before retrying
 
 SOURCES = {
     "osha_inspections": {
