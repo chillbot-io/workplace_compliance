@@ -39,6 +39,7 @@ RATE_LIMIT_BACKOFF = 60  # seconds to wait on 429 before retrying
 SOURCES = {
     "osha_inspections": {
         "path": "osha/inspection",
+        "sort_by": "open_date",
         "fields": [
             "activity_nr", "estab_name", "site_address", "site_city",
             "site_state", "site_zip", "naics_code", "open_date",
@@ -47,19 +48,21 @@ SOURCES = {
     },
     "osha_violations": {
         "path": "osha/violation",
+        "sort_by": "issuance_date",
         "fields": [
             "activity_nr", "citation_id", "viol_type", "gravity",
-            "nr_instances", "penalty", "current_penalty", "abate_date",
+            "nr_instances", "initial_penalty", "current_penalty", "abate_date",
             "issuance_date",
         ],
     },
     "whd_actions": {
         "path": "whd/enforcement",
+        "sort_by": "findings_end_date",
         "fields": [
-            "trade_nm", "legal_name", "street_addr_1_txt", "city_nm",
+            "trade_nm", "legal_name", "street_addr_1_txt", "cty_nm",
             "st_cd", "zip_cd", "naics_code_description",
             "findings_start_date", "findings_end_date",
-            "bw_amt", "ee_violtd_cnt", "case_id",
+            "bw_atp_amt", "ee_violtd_cnt", "case_id",
         ],
     },
 }
@@ -80,6 +83,8 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
         params = {
             "limit": PAGE_SIZE,
             "offset": offset,
+            "sort": "desc",
+            "sort_by": config.get("sort_by", "load_dt"),
             "X-API-KEY": DOL_API_KEY,
         }
 
