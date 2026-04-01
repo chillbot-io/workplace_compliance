@@ -32,7 +32,9 @@ BRONZE_DIR = Path(os.environ.get("BRONZE_DIR", "/data/bronze"))
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 PAGE_SIZE = 200
-RATE_LIMIT_DELAY = 0.5  # seconds between requests
+RATE_LIMIT_DELAY = 2.0  # seconds between requests — DOL v4 rate limits aggressively
+RATE_LIMIT_RETRIES = 5  # max retries on 429
+RATE_LIMIT_BACKOFF = 30  # seconds to wait on 429 before retrying
 
 SOURCES = {
     "osha_inspections": {
@@ -81,15 +83,33 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             "X-API-KEY": DOL_API_KEY,
         }
 
-        try:
-            resp = requests.get(url, params=params, timeout=60)
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            print(f"[{name}] ERROR at offset {offset}: {e}", file=sys.stderr)
-            if total_fetched > 0:
-                print(f"[{name}] Continuing with {total_fetched} records fetched so far")
+        resp = None
+        for retry in range(RATE_LIMIT_RETRIES):
+            try:
+                resp = requests.get(url, params=params, timeout=60)
+                if resp.status_code == 429:
+                    wait = RATE_LIMIT_BACKOFF * (retry + 1)
+                    print(f"[{name}] Rate limited (429) at offset {offset}, waiting {wait}s (retry {retry + 1}/{RATE_LIMIT_RETRIES})...")
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
                 break
-            raise
+            except requests.RequestException as e:
+                if retry < RATE_LIMIT_RETRIES - 1:
+                    wait = RATE_LIMIT_BACKOFF * (retry + 1)
+                    print(f"[{name}] Request error at offset {offset}: {e}, retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
+                print(f"[{name}] ERROR at offset {offset}: {e}", file=sys.stderr)
+                if total_fetched > 0:
+                    print(f"[{name}] Continuing with {total_fetched} records fetched so far")
+                    resp = None
+                    break
+                raise
+
+        if resp is None or resp.status_code == 429:
+            print(f"[{name}] Stopping after {total_fetched} records (rate limit exhausted)")
+            break
 
         data = resp.json()
 
