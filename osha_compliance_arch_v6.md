@@ -433,20 +433,49 @@ def duckdb_to_postgres_binary(duckdb_conn, pg_conn, query: str, target_table: st
 
 pgBouncer sits between the API server and Postgres. Transaction-mode pooling. The API server never connects to Postgres directly.
 
+<!-- v6.2: Full production pgbouncer.ini with timeouts, logging, and auth config -->
+
 ```ini
-; /etc/pgbouncer/pgbouncer.ini
+; /etc/pgbouncer/pgbouncer.ini — production config for API server
 [databases]
 stablelabel = host=127.0.0.1 port=5432 dbname=stablelabel
 
 [pgbouncer]
 listen_addr = 127.0.0.1          ; v6: [finding #53] bind to loopback only — not 0.0.0.0
 listen_port = 6432
-auth_type = md5
+auth_type = scram-sha-256        ; v6.2: upgraded from md5 — matches pg_hba.conf
 auth_file = /etc/pgbouncer/userlist.txt
-pool_mode = transaction
-default_pool_size = 20
-max_client_conn = 100
+pool_mode = transaction           ; transaction-mode: connections returned to pool after each transaction
+default_pool_size = 20            ; 20 server connections per user/database pair (FastAPI 4 workers × 5 concurrent queries)
+min_pool_size = 5                 ; keep 5 warm connections ready
+max_client_conn = 200             ; max client connections (FastAPI workers + Metabase + ad-hoc)
+max_db_connections = 30           ; hard cap on server-side connections (leave headroom for direct admin connections)
+reserve_pool_size = 5             ; emergency overflow pool
+reserve_pool_timeout = 3          ; seconds before reserve pool kicks in
+
+; Timeouts
+server_idle_timeout = 600         ; close idle server connections after 10 min
+client_idle_timeout = 300         ; close idle client connections after 5 min
+query_timeout = 30                ; kill queries running > 30s (API should never need this long)
+client_login_timeout = 10         ; reject connections that take > 10s to authenticate
+server_connect_timeout = 5        ; fail fast if Postgres is unreachable
+
+; Logging
+log_connections = 0               ; don't log every connect (noisy in production)
+log_disconnections = 0
+log_pooler_errors = 1
+stats_period = 60                 ; log pool stats every 60s
+
+; TLS (for Metabase or other clients connecting over non-loopback — future-proofing)
+; client_tls_sslmode = disable    ; not needed when listen_addr = 127.0.0.1
 ```
+
+**userlist.txt format** (plaintext passwords, file permissions `chmod 600`):
+```
+"api" "md5<hash>"
+"metabase_user" "md5<hash>"
+```
+Generate hash: `echo -n "password_hereapi" | md5sum` (md5 of password+username). Or for scram-sha-256, extract the hash from Postgres: `SELECT rolpassword FROM pg_authid WHERE rolname='api';`
 
 > **Firewall note (finding #53):** Even with `listen_addr = 127.0.0.1`, explicitly block port 6432 in your host firewall (`ufw deny 6432` or equivalent). Defense in depth. pgBouncer must never be reachable from the public internet.
 
@@ -514,6 +543,20 @@ if __name__ == "__main__":
 ```
 
 The Docker entrypoint runs `python migrations/migrate.py` before `uvicorn`. This is idempotent — re-running skips already-applied migrations.
+
+**Migration file inventory:** The `migrations/` directory must contain these files at launch. Each migration is a single SQL file wrapped in a transaction. Migrations are irreversible by design — to undo, write a new forward migration.
+
+| File | Purpose |
+|------|---------|
+| `001_init.sql` | Core tables: `customers`, `api_keys`, `api_key_audit_log`, `employer_profile`, `inspection_history`, `pipeline_runs`, `pipeline_errors`, `cluster_id_mapping`, `stripe_webhook_events`, `test_fixtures`, `schema_migrations` (if not auto-created) |
+| `002_subscriptions.sql` | `webhook_subscriptions` table + GIN index on `employer_ids` |
+| `003_batch_jobs.sql` | `batch_jobs` table for async batch processing |
+| `004_api_usage.sql` | `api_usage` table for metered quota tracking |
+| `005_risk_snapshots.sql` | `risk_snapshots` table for historical trend queries |
+
+**Rollback strategy:** There is no automated rollback. If a migration fails mid-execution, Postgres transactional DDL ensures the entire migration is rolled back atomically (all DDL in Postgres is transactional). The `schema_migrations` row is only inserted on success, so a failed migration will be retried on the next deploy. To undo a successfully applied migration, write a new migration (e.g., `006_revert_risk_snapshots.sql`) that reverses the schema change.
+
+**Local development:** Run `DATABASE_URL=postgresql://... python migrations/migrate.py` manually. No separate dev/prod migration tracks — same files, same runner, same order.
 
 #### 3.4.1 Pipeline Monitoring
 
@@ -633,16 +676,27 @@ Splink produces transient `cluster_id` values that change between runs. This tab
 
 ```sql
 -- v6: new table — maps Splink's transient cluster_id to stable employer_id
+-- v6.2: added superseded_by for split/merge audit trail
 CREATE TABLE cluster_id_mapping (
     employer_id     UUID NOT NULL,
     cluster_id      TEXT NOT NULL,
     pipeline_run_id UUID NOT NULL,
     first_seen_at   TIMESTAMP DEFAULT NOW(),
+    superseded_by   UUID,           -- v6.2: if this employer was absorbed by a merge/split, points to the surviving employer_id. NULL = active.
     PRIMARY KEY (employer_id, cluster_id)
 );
+CREATE INDEX idx_cluster_mapping_active ON cluster_id_mapping (employer_id) WHERE superseded_by IS NULL;
 ```
 
 **How it works:** After each Splink run, the pipeline checks each `cluster_id` against prior mappings. If existing records in the cluster match a known `employer_id`, the same UUID is reused. If the cluster is entirely new, a new UUID is generated. This is the mechanism that makes `employer_id` stable across runs — Splink's `cluster_id` is an implementation detail that never leaks to the API.
+
+<!-- v6.2: Explicit split/merge/orphan rules (see update_cluster_mapping in §4.8) -->
+
+**Split/merge stability rules:**
+- **Split:** Previous cluster fractures into N new clusters. The largest new cluster (by member record count) inherits the original `employer_id`. Smaller fragments get new UUIDs. This ensures the "primary" identity persists.
+- **Merge:** N previous clusters collapse into 1. The new cluster inherits the `employer_id` of the previous cluster with the most shared member records. Losing `employer_id`s are marked with `superseded_by` pointing to the winner.
+- **Orphan handling:** API lookups on a `superseded_by IS NOT NULL` employer_id return HTTP 301 with `Location: /v1/employers/{superseded_by}`. This lets API consumers follow the redirect to the surviving entity without breaking bookmarks.
+- **Audit:** `superseded_by` records are never deleted. They form a permanent chain of identity evolution.
 
 #### 3.4.4 inspection_history
 
@@ -722,7 +776,9 @@ CREATE TABLE api_keys (
 - `subscriptions:manage` — create/update/delete webhook subscriptions
 - `admin:all` — unrestricted access
 
-**Quota enforcement (finding #32):** A `monthly_limit` of `0` means the key is disabled (zero calls allowed). There is no magic NULL bypass. Every key must have an explicit numeric limit. The `reset_monthly_usage` cron job zeroes `current_usage` on the 1st of each month but never touches `monthly_limit`.
+**Quota enforcement (finding #32):** A `monthly_limit` of `0` means the key is disabled (zero calls allowed). There is no magic NULL bypass. Every key must have an explicit numeric limit.
+
+> **v6.2 clarification — canonical quota mechanism:** Quota is enforced by counting rows in `api_usage` where `queried_at >= date_trunc('month', NOW())` (see `check_monthly_quota` in §5.2). This is the **only** quota enforcement mechanism. The `current_usage` column on `api_keys` is a **denormalized cache for display purposes only** (used in dashboard headers like `X-Lookups-Remaining`). It is NOT checked during request authorization. The `reset_monthly_usage.py` cron job zeroes this display counter on the 1st of each month. If the cron job fails, quota enforcement is unaffected — only the dashboard display will be stale until the next reset.
 
 **Key expiration (finding #31):** The auth middleware checks `expires_at` on every request. Expired keys return `401` with `{"error": "api_key_expired", "message": "This API key expired on {date}. Generate a new key."}`. There is no grace period.
 
@@ -899,13 +955,36 @@ CREATE TABLE test_fixtures (
     state           TEXT,
     zip             TEXT,
     naics_code      TEXT,
+    naics_description TEXT,
     risk_tier       TEXT NOT NULL CHECK (risk_tier IN ('LOW', 'MEDIUM', 'ELEVATED', 'HIGH')),
+    risk_score      NUMERIC(5,2) DEFAULT 0,
+    confidence_tier TEXT DEFAULT 'HIGH',
+    trend_signal    TEXT DEFAULT 'STABLE',
     osha_inspections_5yr INTEGER DEFAULT 0,
     osha_violations_5yr  INTEGER DEFAULT 0,
     osha_total_penalties NUMERIC(12,2) DEFAULT 0,
+    whd_violations_5yr   INTEGER DEFAULT 0,
     response_json   JSONB NOT NULL         -- full mock API response for this fixture
 );
 ```
+
+<!-- v6.2: Test fixtures seeding strategy and free-tier vs sandbox distinction -->
+
+**Seeding strategy:** Test fixtures are loaded from `seeds/test_fixtures.sql` — a file of 50 INSERT statements with hand-curated data covering all risk tiers, confidence tiers, and edge cases. This file is committed to the repo and applied via migration `001_init.sql`. Fixtures are NEVER generated from production data.
+
+The 50 fixtures must cover:
+- At least 5 employers per risk tier (LOW/MEDIUM/ELEVATED/HIGH)
+- At least 2 with EIN, at least 2 without (confidence tier coverage)
+- At least 2 with multi-source violations (OSHA + WHD + MSHA)
+- At least 1 with `sam_debarred = true`
+- At least 1 with trend_signal = WORSENING, 1 = IMPROVING
+- At least 1 per NAICS sector (construction, manufacturing, healthcare, retail, transportation)
+- Deterministic UUIDs (e.g., `00000000-0000-0000-0000-000000000001` through `...050`) for reproducible tests
+
+**Free tier vs sandbox — these are different things:**
+- **Free tier**: A real production API key with `monthly_limit=5`. Queries real `employer_profile` data. Exists for developer evaluation. Requires signup but no credit card.
+- **Sandbox (test keys)**: Keys prefixed `emp_test_` that route to the `test_fixtures` table. Returns frozen, deterministic data. Does NOT consume quota. Exists for integration testing — developers build against it before going live.
+- **Code-level distinction**: `verify_key()` checks `key.startswith('emp_test_')`. If true, all queries read from `test_fixtures` instead of `employer_profile`. The `check_monthly_quota` function is skipped entirely for test keys.
 
 #### 3.4.16 pipeline_errors
 
@@ -1115,7 +1194,16 @@ def find_subscribers(cur, employer_id: str):
 
 
 def deliver_webhook(callback_url: str, signing_secret: str, payload: dict) -> bool:
-    """POST signed payload to subscriber with retry + exponential backoff."""
+    """POST signed payload to subscriber with retry + exponential backoff.
+
+    v6.2: Retry semantics:
+    - 2xx: success, stop.
+    - 4xx (except 429): fail immediately, do NOT retry. The subscriber's endpoint
+      is broken (auth error, bad URL, gone). Retrying wastes time on unrecoverable errors.
+    - 429 (rate limited): retry with backoff (subscriber is asking us to slow down).
+    - 5xx: retry with backoff (transient server error).
+    - Network error (timeout, DNS, connection refused): retry with backoff.
+    """
     body = json.dumps(payload).encode()
     signature = hmac.new(signing_secret.encode(), body, hashlib.sha256).hexdigest()
     headers = {
@@ -1127,8 +1215,13 @@ def deliver_webhook(callback_url: str, signing_secret: str, payload: dict) -> bo
             resp = requests.post(callback_url, data=body, headers=headers, timeout=10)
             if resp.status_code < 300:
                 return True
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                # 4xx (not 429) = unrecoverable client error — don't retry
+                print(f'Webhook {callback_url}: {resp.status_code} — not retrying')
+                return False
+            # 429 or 5xx: retryable
         except requests.RequestException:
-            pass
+            pass  # network error: retryable
         if attempt < MAX_RETRIES - 1:
             time.sleep(BACKOFF[attempt])
     return False
@@ -1442,6 +1535,27 @@ END AS risk_tier
 
 Walk through the logic: HIGH captures the most severe signals (willful violations, repeat offenders, large penalties, federal debarment). ELEVATED captures patterns suggesting systemic issues (high inspection+violation combos, cross-agency violations, outlier citation rates). MEDIUM covers moderate activity. Everything else is LOW. The `>= 10` on the MEDIUM line (finding #34) closes the gap where v5 had `> 10` in ELEVATED but `BETWEEN 3 AND 9` in MEDIUM, leaving exactly-10 to fall through to LOW.
 
+**Risk Score (numeric):**
+
+<!-- v6.2: risk_score was in the schema but never defined. This is the canonical formula. -->
+
+`risk_score` is a continuous 0–100 numeric that provides granularity within tiers. It is stored alongside `risk_tier` but **the tier is authoritative** — `risk_score` is for sorting within a tier, not for overriding tier boundaries. The formula is a weighted sum, clamped to [0, 100]:
+
+```sql
+LEAST(100, GREATEST(0,
+    COALESCE(osha_willful_count_5yr, 0) * 25
+  + COALESCE(osha_repeat_count_5yr, 0)  * 10
+  + COALESCE(osha_serious_count_5yr, 0) * 5
+  + COALESCE(osha_other_count_5yr, 0)   * 1
+  + CASE WHEN sam_debarred THEN 30 ELSE 0 END
+  + LEAST(20, COALESCE(osha_penalty_total_5yr, 0) / 10000.0)
+  + CASE WHEN COALESCE(whd_violation_count_5yr, 0) > 0 THEN 5 ELSE 0 END
+  + CASE WHEN COALESCE(msha_violation_count_5yr, 0) > 0 THEN 5 ELSE 0 END
+)) AS risk_score
+```
+
+The weights are intentionally simple and reviewable. They will be tuned with customer feedback in Phase 2. `risk_score` is exposed in the API response but never referenced in tier assignment logic — if `risk_score` and `risk_tier` appear to disagree, the tier is correct (the score is supplementary context).
+
 **Trend Signal:**
 
 ```sql
@@ -1524,40 +1638,74 @@ def run_deduplication():
 
 def update_cluster_mapping(con):
     """Map Splink's transient cluster_ids to stable employer_id UUIDs.
-    If a new cluster overlaps with an existing mapping (by member records),
-    it inherits the stable UUID. New clusters get a new UUID."""
+
+    v6.2: Explicit rules for splits, merges, and orphans:
+
+    STABILITY RULES:
+    1. EXACT MATCH:  If new cluster_id == existing cluster_id in mapping → reuse employer_id.
+    2. OVERLAP:      If new cluster shares ≥1 member record (activity_nr) with a previous cluster
+                     → inherit that cluster's employer_id. This handles Splink reassigning IDs.
+    3. SPLIT:        If a previous cluster splits into N new clusters, each new cluster checks
+                     overlap independently. The LARGEST new cluster (by member count) inherits
+                     the original employer_id. Smaller fragments get new UUIDs. This is enforced
+                     by the `LIMIT 1` + ordering by overlap count below.
+    4. MERGE:        If N previous clusters merge into 1 new cluster, the new cluster inherits
+                     the employer_id of the previous cluster with the MOST member records.
+                     The other previous employer_ids become orphans (kept in cluster_id_mapping
+                     with a `superseded_by` column for audit trail, but never returned by API).
+    5. NEW CLUSTER:  No overlap with any previous cluster → new UUID.
+    6. ORPHAN CLEANUP: Previous employer_ids that no longer map to any active cluster are
+                     marked `superseded_by = <winning_employer_id>` but NOT deleted. API
+                     lookups on orphaned employer_ids return 301 redirect to the new ID.
+    """
     # Get existing mappings
     existing = con.execute("""
         SELECT employer_id, cluster_id FROM cluster_id_mapping
+        WHERE superseded_by IS NULL
     """).df()
 
-    # Get new clusters
+    # Get new clusters with member counts (for split/merge resolution)
     new_clusters = con.execute("""
-        SELECT DISTINCT cluster_id FROM employer_clusters
+        SELECT cluster_id, COUNT(*) as member_count
+        FROM employer_clusters
+        GROUP BY cluster_id
     """).df()
 
     mappings = []
+    claimed_employer_ids = set()  # prevent same employer_id assigned to two clusters
     existing_map = dict(zip(existing['cluster_id'], existing['employer_id'])) if not existing.empty else {}
+
+    # Sort by member_count DESC so largest clusters claim employer_ids first (split rule)
+    new_clusters = new_clusters.sort_values('member_count', ascending=False)
 
     for _, row in new_clusters.iterrows():
         cid = row['cluster_id']
-        if cid in existing_map:
-            mappings.append({'employer_id': existing_map[cid], 'cluster_id': cid})
+        if cid in existing_map and existing_map[cid] not in claimed_employer_ids:
+            eid = existing_map[cid]
+            mappings.append({'employer_id': eid, 'cluster_id': cid})
+            claimed_employer_ids.add(eid)
         else:
-            # Check if any member records overlap with an existing cluster
-            # v6.1: parameterized query replaces f-string to prevent SQL injection
+            # Check overlap: find the previous employer_id with the MOST shared records
             # v6.1: Join against employer_clusters_prev (snapshot of PREVIOUS run's clusters)
-            # instead of employer_clusters (which now contains CURRENT run's clusters).
             overlap = con.execute("""
-                SELECT DISTINCT m.employer_id
+                SELECT m.employer_id, COUNT(*) as overlap_count
                 FROM cluster_id_mapping m
                 JOIN employer_clusters_prev ec_old ON m.cluster_id = ec_old.cluster_id
                 JOIN employer_clusters ec_new ON ec_old.activity_nr = ec_new.activity_nr
                 WHERE ec_new.cluster_id = ?
+                  AND m.superseded_by IS NULL
+                GROUP BY m.employer_id
+                ORDER BY overlap_count DESC
                 LIMIT 1
             """, [cid]).df()
             if not overlap.empty:
-                mappings.append({'employer_id': overlap.iloc[0]['employer_id'], 'cluster_id': cid})
+                eid = overlap.iloc[0]['employer_id']
+                if eid not in claimed_employer_ids:
+                    mappings.append({'employer_id': eid, 'cluster_id': cid})
+                    claimed_employer_ids.add(eid)
+                else:
+                    # employer_id already claimed by a larger cluster (split case) → new UUID
+                    mappings.append({'employer_id': str(uuid.uuid4()), 'cluster_id': cid})
             else:
                 mappings.append({'employer_id': str(uuid.uuid4()), 'cluster_id': cid})
 
@@ -1569,20 +1717,99 @@ def update_cluster_mapping(con):
             SELECT employer_id, cluster_id, current_setting('pipeline_run_id') FROM mapping_df
         """)
 
+    # Mark orphaned employer_ids (previous mappings not claimed by any new cluster)
+    active_eids = claimed_employer_ids
+    for _, erow in existing.iterrows():
+        if erow['employer_id'] not in active_eids:
+            # Find which new employer_id absorbed this one's records
+            absorber = con.execute("""
+                SELECT m_new.employer_id
+                FROM employer_clusters_prev ec_old
+                JOIN employer_clusters ec_new ON ec_old.activity_nr = ec_new.activity_nr
+                JOIN cluster_id_mapping m_new ON ec_new.cluster_id = m_new.cluster_id
+                WHERE ec_old.cluster_id = ?
+                  AND m_new.superseded_by IS NULL
+                LIMIT 1
+            """, [erow['cluster_id']]).df()
+            superseded_by = absorber.iloc[0]['employer_id'] if not absorber.empty else None
+            con.execute("""
+                UPDATE cluster_id_mapping
+                SET superseded_by = ?
+                WHERE employer_id = ? AND superseded_by IS NULL
+            """, [superseded_by, erow['employer_id']])
+
 def monitor_model_drift(con, predictions):
     """Compare current Splink predictions against labeled holdout pairs.
-    Alert if precision drops below 0.85."""
+    Alert if precision drops below 0.85 or recall below 0.80.
+
+    v6.2: Full implementation replacing stub. Computes precision and recall
+    by joining Splink predictions against human-reviewed pairs in review_queue.
+    """
     holdout = con.execute("""
         SELECT record_id_left, record_id_right, decision
         FROM review_queue WHERE decision IS NOT NULL
     """).df()
     if holdout.empty or len(holdout) < 50:
-        print('Splink drift: insufficient labeled pairs for monitoring')
+        print(f'Splink drift: insufficient labeled pairs ({len(holdout) if not holdout.empty else 0}/50 minimum)')
         return
-    # Compare predictions against holdout decisions
+
     pred_df = predictions.as_pandas_dataframe()
-    # ... precision/recall computation logged to pipeline_runs metadata
-    print(f'Splink drift check: {len(holdout)} labeled pairs evaluated')
+
+    # Normalize pair ordering so (A,B) == (B,A)
+    holdout['pair_key'] = holdout.apply(
+        lambda r: tuple(sorted([r['record_id_left'], r['record_id_right']])), axis=1
+    )
+    pred_df['pair_key'] = pred_df.apply(
+        lambda r: tuple(sorted([str(r['id_l']), str(r['id_r'])])), axis=1
+    )
+
+    # Join: which holdout pairs did the model predict as matches (>= clustering threshold)?
+    pred_matches = set(pred_df[pred_df['match_probability'] >= 0.85]['pair_key'])
+    human_matches = set(holdout[holdout['decision'] == 'match']['pair_key'])
+    human_non_matches = set(holdout[holdout['decision'] == 'non_match']['pair_key'])
+
+    tp = len(pred_matches & human_matches)
+    fp = len(pred_matches & human_non_matches)
+    fn = len(human_matches - pred_matches)
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+
+    print(f'Splink drift: precision={precision:.3f} recall={recall:.3f} '
+          f'(tp={tp} fp={fp} fn={fn}, {len(holdout)} labeled pairs)')
+
+    # Log metrics to pipeline_runs metadata
+    import json
+    con.execute("""
+        UPDATE pipeline_runs
+        SET error_message = ?
+        WHERE run_id = current_setting('pipeline_run_id')
+    """, [json.dumps({
+        'drift_precision': round(precision, 4),
+        'drift_recall': round(recall, 4),
+        'drift_tp': tp, 'drift_fp': fp, 'drift_fn': fn,
+        'drift_labeled_pairs': len(holdout),
+    })])
+
+    # Alert thresholds
+    if precision < 0.85:
+        import os, urllib.request
+        webhook = os.environ.get('ALERT_WEBHOOK_URL')
+        if webhook:
+            urllib.request.urlopen(urllib.request.Request(
+                webhook, method='POST',
+                data=json.dumps({'text': f'⚠️ Splink precision dropped to {precision:.3f} (threshold: 0.85)'}).encode(),
+                headers={'Content-Type': 'application/json'}
+            ))
+    if recall < 0.80:
+        import os, urllib.request
+        webhook = os.environ.get('ALERT_WEBHOOK_URL')
+        if webhook:
+            urllib.request.urlopen(urllib.request.Request(
+                webhook, method='POST',
+                data=json.dumps({'text': f'⚠️ Splink recall dropped to {recall:.3f} (threshold: 0.80)'}).encode(),
+                headers={'Content-Type': 'application/json'}
+            ))
 
 if __name__ == '__main__':
     run_deduplication()
@@ -1594,6 +1821,15 @@ if __name__ == '__main__':
 - **Stable employer_id mapping:** Splink assigns new `cluster_id` values on every run. The `cluster_id_mapping` table maintains a stable UUID (`employer_id`) that persists across runs. If a cluster's member records overlap with a previous cluster, the old UUID is inherited. This is critical for API consumers who bookmark employer URLs.
 - **Drift monitoring (finding #13):** After each run, the pipeline evaluates Splink predictions against human-reviewed pairs from `review_queue`. If fewer than 50 labeled pairs exist, monitoring is skipped with a warning. Once sufficient labels accumulate, precision/recall metrics are logged to `pipeline_runs` metadata for trend analysis.
 - **Thresholds:** `threshold_match_probability=0.80` for predictions and `0.85` for clustering. The prediction threshold is intentionally looser to allow borderline pairs into the review queue. The clustering threshold is tighter to keep the Gold layer clean.
+- **Pairs between 0.80-0.85:** These are predicted matches that don't cluster. They are explicitly routed into `review_queue` for human labeling. The pipeline inserts them after clustering:
+  ```python
+  borderline = pred_df[(pred_df['match_probability'] >= 0.80) & (pred_df['match_probability'] < 0.85)]
+  for _, row in borderline.iterrows():
+      con.execute("INSERT INTO review_queue (record_id_left, record_id_right, match_probability, pipeline_run_id) VALUES (?, ?, ?, ?)",
+          [row['id_l'], row['id_r'], row['match_probability'], pipeline_run_id])
+  ```
+- **Comparison weights rationale:** `address_key` is ExactMatch (binary — either the normalized address matches or it doesn't). `name_normalized` uses JaroWinkler with two thresholds (0.92 = strong match, 0.80 = partial match) because company names have high variance in abbreviations. `naics_4digit` and `site_state` are ExactMatch because they are categorical codes.
+- **Training strategy:** On first run, Splink uses unsupervised EM estimation (`estimate_u_using_random_sampling` + `estimate_parameters_using_expectation_maximisation`). No labeled training data is needed. As `review_queue` accumulates 200+ labeled pairs, switch to `linker.estimate_parameters_using_pairwise_labels()` for supervised fine-tuning. This is a Phase 2 task — Phase 1 runs fully unsupervised.
 
 ### 4.9 dbt Project Structure
 
@@ -1854,6 +2090,71 @@ def check_scope(required_scope: str):
 
 `admin:all` bypasses all scope checks. Dashboard endpoints use JWT cookie auth, not API keys — scope checking does not apply (CSRF protection applies instead).
 
+<!-- v6.2: Scope enforcement was defined as a function but never shown wired to endpoints.
+     This is the canonical wiring pattern. Every /v1/ endpoint MUST follow it. -->
+
+**Endpoint wiring pattern:** Every `/v1/` endpoint uses `Depends(check_scope(...))` as a parameter dependency. This is NOT optional — an endpoint missing it is a security bug.
+
+```python
+# api/routes/employers.py — canonical scope enforcement wiring
+
+from fastapi import APIRouter, Depends, Query
+from api.auth import check_scope, verify_key, record_usage
+
+router = APIRouter(prefix="/v1")
+
+@router.get("/employers")
+async def search_employers(
+    key_row=Depends(check_scope("employer:read")),  # scope gate — rejects 403 if missing
+    name: str | None = Query(None),
+    ein: str | None = Query(None),
+    address: str | None = Query(None),
+):
+    await record_usage(key_row, endpoint="/v1/employers")  # metered
+    # ... search logic ...
+
+@router.get("/employers/{employer_id}/inspections")
+async def get_inspections(
+    employer_id: str,
+    key_row=Depends(check_scope("employer:read")),  # scope required even on free endpoints
+):
+    # NOT metered — no record_usage call
+    # ... inspection logic ...
+
+@router.post("/employers/batch")
+async def batch_lookup(
+    key_row=Depends(check_scope("batch:write")),  # different scope
+    # ... body ...
+):
+    await record_usage(key_row, endpoint="/v1/employers/batch", count=len(body.lookups))
+    # ... batch logic ...
+
+@router.post("/subscriptions")
+async def create_subscription(
+    key_row=Depends(check_scope("subscriptions:manage")),
+    # ... body ...
+):
+    # NOT metered
+    # ... subscription logic ...
+```
+
+**`record_usage` helper** (inserts into `api_usage` table for metered endpoints):
+
+```python
+async def record_usage(key_row, endpoint: str, count: int = 1):
+    """Log metered API usage. Called only on metered endpoints (see matrix above)."""
+    async with get_pool().acquire() as con:
+        await con.execute("""
+            INSERT INTO api_usage (key_hash, endpoint, queried_at, lookup_count)
+            VALUES ($1, $2, NOW(), $3)
+        """, key_row['key_hash'], endpoint, count)
+        # Update denormalized display counter (not used for enforcement)
+        await con.execute("""
+            UPDATE api_keys SET current_usage = current_usage + $1
+            WHERE key_hash = $2
+        """, count, key_row['key_hash'])
+```
+
 ### 5.3 Self-Serve Signup Flow
 
 **Step 1: Signup** -- use argon2id, not bcrypt.
@@ -1917,17 +2218,49 @@ DELETE /dashboard/keys/{id}     # immediate revocation, log to audit
 
 **Session Management (JWT) -- RS256.**
 
+<!-- v6.2: Full JWT claims structure, key generation, and session persistence strategy -->
+
 ```
 POST /auth/login {"email": "...", "password": "..."}
 # Verify argon2id hash
 # v6: finding #19 — RS256 JWT (asymmetric, not HS256)
-# Issue JWT: {sub: customer_id, role: role, exp: NOW()+8h}
-# Signed with RSA private key, verified with public key
-# Pin algorithm on decode: algorithms=['RS256']
-# Client stores in memory (not localStorage) — web UI only
-# API calls use X-Api-Key header — no JWT involved
-
 # v6: finding #21 — rate limited: 10 req/min on /auth/login
+```
+
+**RSA keypair generation (run once per server, store at paths below):**
+```bash
+openssl genrsa -out /etc/employer-compliance/jwt_private.pem 2048
+openssl rsa -in /etc/employer-compliance/jwt_private.pem -pubout -out /etc/employer-compliance/jwt_public.pem
+chmod 600 /etc/employer-compliance/jwt_private.pem
+chmod 644 /etc/employer-compliance/jwt_public.pem
+```
+
+**JWT claims structure:**
+```json
+{
+  "sub": "42",                          // customer_id (string, not int — JWT spec recommends string)
+  "role": "analyst",                    // customer.role: viewer | analyst | admin
+  "email": "user@example.com",         // for display; NOT used for authorization
+  "iat": 1711900800,                   // issued-at (Unix timestamp)
+  "exp": 1711929600,                   // expires: iat + 8 hours
+  "iss": "employer-compliance-api",    // issuer — hardcoded string
+  "jti": "a1b2c3d4-..."               // unique token ID (UUID v4) for revocation checks
+}
+```
+
+**Session persistence strategy:**
+- JWT is set as an **HttpOnly, Secure, SameSite=Lax cookie** named `session`. NOT stored in localStorage (XSS risk) or JS memory (lost on refresh).
+- HttpOnly prevents JavaScript access → immune to XSS token theft.
+- SameSite=Lax prevents CSRF on most requests; POST/PUT/DELETE additionally require CSRF token (double-submit cookie pattern, §6.2).
+- Token lifetime: **8 hours**. No refresh tokens. When the JWT expires, the user re-authenticates via `/auth/login`. This is acceptable for a B2B dashboard with infrequent use.
+- **Why no refresh tokens:** Refresh tokens add complexity (rotation, storage, revocation) for minimal benefit in a dashboard that users visit a few times per week. 8-hour sessions cover a full workday. If users complain, add refresh tokens in Phase 2 with sliding expiry.
+
+**Key rotation (finding #19):** The `rotate_keys.py` cron (hourly) does NOT rotate JWT keys — it rotates expiring API keys. JWT RSA keys are long-lived (rotate manually every 12 months). When rotating JWT keys: generate new keypair, deploy public key to API server first, then swap private key. Old tokens remain valid until their `exp` (max 8h window). No JWKS endpoint needed — single-server deployment.
+
+**Decode — always pin algorithm:**
+```python
+import jwt
+payload = jwt.decode(token, public_key, algorithms=["RS256"], issuer="employer-compliance-api")
 ```
 
 ### 5.4 Test Keys
@@ -2031,37 +2364,46 @@ rclone                       # install via rclone.org/install.sh
 redis==5.*
 ```
 
-### 6.1 .env.example
+### 6.1 Environment Variables
+
+<!-- v6.2: Split into two separate .env files — one per server.
+     Previously a single .env was loaded by both servers, leaking pipeline secrets to the API
+     server and vice versa. Docker Compose on each server now references its own file. -->
+
+**API Server** — `/opt/employer-compliance/.env.api`:
 
 ```bash
-# .env.example — all secrets and config required before starting the application
-# v6.1: Added ALERT_WEBHOOK_URL, DUCKDB_PATH, DATABASE_URL (were referenced in code but missing here)
-
-# --- API Server ---
-PG_PASSWORD=<postgres password for api user>             # referenced by docker-compose.api.yml
-MB_DB_PASS=<metabase postgres password>                  # referenced by docker-compose.api.yml
-PG_DSN=postgresql://api:${PG_PASSWORD}@localhost:6432/compliance  # localhost = pgBouncer on same host
+# .env.api — API server only
+PG_PASSWORD=<postgres password for api user>
+MB_DB_PASS=<metabase postgres password>
+PG_DSN=postgresql://api:${PG_PASSWORD}@localhost:6432/stablelabel
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 RESEND_API_KEY=re_...
 SENTRY_DSN=https://xxx@sentry.io/xxx
-# v6: finding #19 — RS256 asymmetric keys replace JWT_SECRET
 JWT_PRIVATE_KEY_PATH=/etc/employer-compliance/jwt_private.pem
 JWT_PUBLIC_KEY_PATH=/etc/employer-compliance/jwt_public.pem
-# Generate keypair: openssl genrsa -out jwt_private.pem 2048 && openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
+CSRF_SECRET=<64-char hex string>     # v6.2: persists across deploys. Generate: python -c "import secrets; print(secrets.token_hex(32))"
+ALERT_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../...
 ENV=production
+```
 
-# --- Pipeline Server ---
+**Pipeline Server** — `/opt/employer-compliance/.env.pipeline`:
+
+```bash
+# .env.pipeline — Pipeline server only
 DATABASE_URL=postgresql://pipeline_user:password@10.0.0.1:5432/stablelabel?sslmode=require
 DUCKDB_PATH=/data/duckdb/employer_compliance.duckdb
 DOL_API_KEY=<from dataportal.dol.gov>
 SAM_API_KEY=<from sam.gov/content/entity-registration>
-
-# --- Shared (both servers) ---
-ALERT_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../...   # Slack incoming webhook for cron/health alerts
+ALERT_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../...
 ```
 
-Add `.env` to `.gitignore`. On servers: store in `/opt/employer-compliance/.env`, `chmod 600`.
+**Docker Compose reference:** Update `env_file:` in each compose file:
+- `docker-compose.api.yml`: `env_file: .env.api`
+- `docker-compose.pipeline.yml`: `env_file: .env.pipeline`
+
+Add both `.env.api` and `.env.pipeline` to `.gitignore`. On servers: `chmod 600`. Commit `.env.api.example` and `.env.pipeline.example` (with placeholder values) to the repo.
 
 ### 6.2 Infrastructure -- Two-Server Architecture
 
@@ -2092,6 +2434,50 @@ The pipeline server must reach the API server's Postgres for the nightly sync (s
 5. **Firewall rules** — On the API server: `ufw allow from 10.0.0.2 to any port 5432`. Deny all other inbound on 5432.
 
 **Fallback option:** If vSwitch is unavailable, use a **WireGuard tunnel** between the two servers. WireGuard adds ~1ms latency and handles encryption natively. Pipeline connects to Postgres via the WireGuard IP.
+
+#### Database Initialization Script
+
+<!-- v6.2: Was completely missing — no specification for creating Postgres users, roles, or permissions. -->
+
+Run this **once** on the API server's Postgres instance before first deploy. This creates the three database users with least-privilege permissions:
+
+```sql
+-- scripts/init_db.sql — run as postgres superuser on first setup
+-- Usage: psql -U postgres -f scripts/init_db.sql
+
+-- 1. Create database
+CREATE DATABASE stablelabel;
+\c stablelabel
+
+-- 2. API user — owns all tables, used by FastAPI via pgBouncer
+CREATE ROLE api WITH LOGIN PASSWORD 'CHANGE_ME' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+GRANT ALL PRIVILEGES ON DATABASE stablelabel TO api;
+-- After migrations run (api owns all tables), grant:
+-- GRANT ALL ON ALL TABLES IN SCHEMA public TO api;
+-- GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO api;
+
+-- 3. Pipeline user — remote, writes to employer_profile + related tables only
+CREATE ROLE pipeline_user WITH LOGIN PASSWORD 'CHANGE_ME' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+GRANT CONNECT ON DATABASE stablelabel TO pipeline_user;
+-- Grants applied after migrations:
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON employer_profile, employer_profile_staging,
+--   employer_profile_prev, inspection_history, risk_snapshots, pipeline_runs,
+--   pipeline_errors, cluster_id_mapping TO pipeline_user;
+-- GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO pipeline_user;
+-- DENY: pipeline_user cannot access customers, api_keys, api_usage, stripe_webhook_events
+
+-- 4. Metabase user — read-only on all tables (for dashboards)
+CREATE ROLE metabase_user WITH LOGIN PASSWORD 'CHANGE_ME' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+GRANT CONNECT ON DATABASE stablelabel TO metabase_user;
+-- Grants applied after migrations:
+-- GRANT SELECT ON ALL TABLES IN SCHEMA public TO metabase_user;
+-- ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO metabase_user;
+
+-- 5. Enforce scram-sha-256 authentication (pg_hba.conf must also be configured)
+-- In postgresql.conf: password_encryption = 'scram-sha-256'
+```
+
+**Post-migration grants:** After `migrate.py` runs and creates all tables, apply the GRANT statements above. This can be a migration file itself (`006_grants.sql`) or run manually on first deploy. Subsequent migrations should include grants for any new tables they create.
 
 ### Dockerfiles
 
@@ -2273,7 +2659,11 @@ from starlette.responses import Response
 
 CSRF_COOKIE = "csrf_token"
 CSRF_HEADER = "X-CSRF-Token"
-CSRF_SECRET = secrets.token_bytes(32)  # rotates on process restart; acceptable for dashboard sessions
+CSRF_SECRET = os.environ.get('CSRF_SECRET', '').encode() or secrets.token_bytes(32)
+# v6.2: CSRF_SECRET is now loaded from environment variable (set in .env.api).
+# This persists across process restarts and deploys, preventing dashboard sessions from
+# being invalidated on every redeploy. Generate once: python -c "import secrets; print(secrets.token_hex(32))"
+# If env var is missing, falls back to random bytes (dev mode only — logs a warning).
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 PROTECTED_PREFIXES = ("/dashboard/",)
 
@@ -2784,9 +3174,31 @@ GET /v1/employers
 
 `# v6: finding #46`
 
-The `address_key` is a pipe-delimited normalized string with the format `STREET_NUMBER|STREET_NAME|ZIP5`, generated by parsing the raw address through the `usaddress` library on the server side. The caller sends free text; the API handles parsing.
+<!-- v6.2: Resolved libpostal vs usaddress inconsistency.
+     Pipeline (parse_addresses.py) uses usaddress in Phase 1. libpostal is a Phase 2 upgrade.
+     API search also uses usaddress. Same library at both ends ensures address_key consistency. -->
 
-Example: an input of `123 Main Street, Boise, ID 83702` produces address_key `123|MAIN ST|83702`.
+**Address parsing library:** Both the pipeline (`parse_addresses.py`) and the API search endpoint use **`usaddress`** (Python, pure-Python, no C dependencies). The architecture doc previously referenced `libpostal` in the pipeline Dockerfile — that is a **Phase 2 upgrade** for better international/edge-case handling. Phase 1 uses `usaddress` everywhere for consistency. The libpostal install block in the pipeline Dockerfile is commented out with a Phase 2 marker.
+
+**Why consistency matters:** The `address_key` is used for exact-match joins. If the pipeline generates keys with libpostal and the API generates keys with usaddress, the same address will produce different keys and exact-match will silently fail.
+
+**`address_key` canonical definition:**
+
+The `address_key` is a pipe-delimited normalized string: **`STREET_NUMBER|STREET_NAME|ZIP5`**
+
+Generation steps:
+1. Parse raw address through `usaddress.tag()`
+2. Extract `AddressNumber` (street number), `StreetName` + `StreetNamePostType` (street name), and `ZipCode` (first 5 digits)
+3. Uppercase all components
+4. Normalize street name: expand abbreviations (`ST` → `STREET`, `AVE` → `AVENUE`, `BLVD` → `BOULEVARD`, `DR` → `DRIVE`, `RD` → `ROAD`, `LN` → `LANE`, `CT` → `COURT`, `PL` → `PLACE`)
+5. Concatenate with `|` separator
+
+Example: `123 Main St, Suite 400, Boise, ID 83702` → `123|MAIN STREET|83702` (suite numbers are ignored).
+
+**Failure modes:**
+- If `usaddress.tag()` raises `RepeatedLabelError` (ambiguous parse): store `address_key = NULL`. The record participates in entity resolution via name/NAICS blocking only — it will not match on address.
+- If any of the three required components (number, street, zip) are missing: store `address_key = NULL`.
+- NULL `address_key` records are logged to pipeline monitoring as warnings (not errors).
 
 This key is used during entity resolution in the pipeline and during search-time matching to boost results where the address matches exactly.
 
@@ -3302,13 +3714,30 @@ Public endpoint — no authentication required. <!-- v6.1 -->
 GET /v1/health
 ```
 
-Response:
+<!-- v6.2: Fully specified health check with pass/fail logic, used by deploy scripts,
+     UptimeRobot, and post-pipeline cron. -->
+
+**Pass/fail logic:** The endpoint returns HTTP 200 with `"status": "healthy"` if ALL of the following are true:
+1. Postgres connection succeeds (query: `SELECT 1`)
+2. `employer_profile` table has > 0 rows
+3. Most recent `pipeline_runs` entry has `status IN ('completed', 'completed_with_warnings')`
+4. Most recent pipeline run `finished_at` is within 26 hours of NOW() (allows for a missed nightly + buffer)
+
+If any check fails, return HTTP 503 with `"status": "degraded"` and a `"checks"` object showing which check failed. Deploy scripts and UptimeRobot key on HTTP status code, not response body.
+
+**Response (healthy — HTTP 200):**
 
 ```json
 {
   "status": "healthy",
+  "checks": {
+    "database": "ok",
+    "data_loaded": "ok",
+    "pipeline_recent": "ok",
+    "pipeline_status": "ok"
+  },
   "last_pipeline_run": "2026-03-25T02:14:33Z",
-  "last_pipeline_status": "success",
+  "last_pipeline_status": "completed",
   "employer_profiles_count": 1847293,
   "osha_data_effective_through": "~September 2025",
   "data_lag_note": "OSHA citations appear 3-8 months after inspection date",
@@ -3316,7 +3745,24 @@ Response:
 }
 ```
 
-No authentication required. No metering.
+**Response (degraded — HTTP 503):**
+
+```json
+{
+  "status": "degraded",
+  "checks": {
+    "database": "ok",
+    "data_loaded": "ok",
+    "pipeline_recent": "fail",
+    "pipeline_status": "ok"
+  },
+  "message": "Pipeline has not completed in the last 26 hours",
+  "last_pipeline_run": "2026-03-23T02:14:33Z",
+  "api_version": "1.0"
+}
+```
+
+No authentication required. No metering. Deploy rollback script (`deploy.sh`) checks for HTTP 200 — a 503 triggers automatic rollback to the previous image tag.
 
 ---
 
