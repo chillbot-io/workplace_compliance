@@ -1,6 +1,9 @@
 """
-pipeline/ingest_dol.py — Fetch OSHA Inspections, OSHA Violations, and WHD data from DOL API v2.
+pipeline/ingest_dol.py — Fetch OSHA Inspections, OSHA Violations, and WHD data from DOL API v4.
 Writes raw Parquet files to /data/bronze/{source}/{date}/.
+
+DOL migrated from v2 (api.dol.gov) to v4 (apiprod.dol.gov) in late 2024.
+v4 uses limit/offset pagination and API key as query parameter.
 
 Usage:
     python pipeline/ingest_dol.py
@@ -24,17 +27,16 @@ if not DOL_API_KEY:
     print("Register at https://dataportal.dol.gov to get a key", file=sys.stderr)
     sys.exit(1)
 
-BASE_URL = "https://api.dol.gov/v2"
+BASE_URL = "https://apiprod.dol.gov/v4/get"
 BRONZE_DIR = Path(os.environ.get("BRONZE_DIR", "/data/bronze"))
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-# DOL API pagination limit
 PAGE_SIZE = 200
 RATE_LIMIT_DELAY = 0.5  # seconds between requests
 
 SOURCES = {
     "osha_inspections": {
-        "endpoint": "/Safety/Inspections",
+        "path": "osha/inspection",
         "fields": [
             "activity_nr", "estab_name", "site_address", "site_city",
             "site_state", "site_zip", "naics_code", "open_date",
@@ -42,7 +44,7 @@ SOURCES = {
         ],
     },
     "osha_violations": {
-        "endpoint": "/Safety/Violations",
+        "path": "osha/violation",
         "fields": [
             "activity_nr", "citation_id", "viol_type", "gravity",
             "nr_instances", "penalty", "current_penalty", "abate_date",
@@ -50,7 +52,7 @@ SOURCES = {
         ],
     },
     "whd_actions": {
-        "endpoint": "/WHD/ComplianceActions",
+        "path": "whd/enforcement",
         "fields": [
             "trade_nm", "legal_name", "street_addr_1_txt", "city_nm",
             "st_cd", "zip_cd", "naics_code_description",
@@ -62,26 +64,25 @@ SOURCES = {
 
 
 def fetch_source(name: str, config: dict) -> pd.DataFrame:
-    """Fetch all records for a DOL API source with pagination."""
-    endpoint = config["endpoint"]
-    url = f"{BASE_URL}{endpoint}"
-    headers = {"X-API-KEY": DOL_API_KEY}
+    """Fetch all records for a DOL API v4 source with limit/offset pagination."""
+    api_path = config["path"]
+    url = f"{BASE_URL}/{api_path}/json"
 
     all_records = []
     offset = 0
     total_fetched = 0
 
-    print(f"[{name}] Starting fetch from {endpoint}...")
+    print(f"[{name}] Starting fetch from {url}...")
 
     while True:
         params = {
-            "$top": PAGE_SIZE,
-            "$skip": offset,
-            "$orderby": config["fields"][0],  # order by primary key field
+            "limit": PAGE_SIZE,
+            "offset": offset,
+            "X-API-KEY": DOL_API_KEY,
         }
 
         try:
-            resp = requests.get(url, headers=headers, params=params, timeout=30)
+            resp = requests.get(url, params=params, timeout=60)
             resp.raise_for_status()
         except requests.RequestException as e:
             print(f"[{name}] ERROR at offset {offset}: {e}", file=sys.stderr)
@@ -92,11 +93,9 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
 
         data = resp.json()
 
-        # DOL API returns results in 'd' wrapper or directly as list
-        if isinstance(data, dict) and "d" in data:
-            records = data["d"].get("results", [])
-        elif isinstance(data, dict) and "results" in data:
-            records = data["results"]
+        # v4 API wraps results in "data" key
+        if isinstance(data, dict) and "data" in data:
+            records = data["data"]
         elif isinstance(data, list):
             records = data
         else:
@@ -124,9 +123,11 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(all_records)
-    # Keep only the fields we care about (plus any extras the API returns)
+    # Keep only the fields we care about
     available_fields = [f for f in config["fields"] if f in df.columns]
-    return df[available_fields]
+    if available_fields:
+        return df[available_fields]
+    return df
 
 
 def save_parquet(df: pd.DataFrame, source_name: str):
