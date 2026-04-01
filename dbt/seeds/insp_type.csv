@@ -1,0 +1,13 @@
+code,label,description
+A,Accident,Accident investigation
+B,Complaint (Formal),Formal complaint investigation
+C,Referral,Referral investigation
+H,Health,Health inspection
+I,Imminent Danger,Imminent danger investigation
+J,Variance,Variance inspection
+K,Complaint (Informal),Informal complaint investigation
+M,Monitoring,Follow-up monitoring inspection
+P,Planned,Planned/Programmed inspection
+R,Fatality/Catastrophe,Fatality or catastrophe investigation
+S,Safety,Safety inspection
+Z,Other,Other inspection type

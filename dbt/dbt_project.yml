@@ -1,0 +1,14 @@
+name: employer_compliance
+version: '1.0.0'
+
+profile: employer_compliance
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+seeds:
+  employer_compliance:
+    +schema: main
