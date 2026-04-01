@@ -77,6 +77,14 @@ def sync():
 
     pg_df = pg_df[pg_columns]
 
+    # Cast integer columns — DuckDB SUM() produces floats
+    int_cols = [
+        "osha_inspections_5yr", "osha_violations_5yr", "osha_serious_willful",
+    ]
+    for col in int_cols:
+        if col in pg_df.columns:
+            pg_df[col] = pg_df[col].fillna(0).astype(int)
+
     # Connect to Postgres
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
