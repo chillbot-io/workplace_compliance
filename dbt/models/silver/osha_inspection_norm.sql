@@ -19,7 +19,7 @@ violation_agg AS (
         SUM(CASE WHEN viol_type = 'R' THEN 1 ELSE 0 END) AS repeat_count,
         SUM(CASE WHEN viol_type = 'S' THEN 1 ELSE 0 END) AS serious_count,
         SUM(CASE WHEN viol_type IN ('O', 'U') THEN 1 ELSE 0 END) AS other_count,
-        SUM(COALESCE(current_penalty, penalty, 0)) AS total_penalties,
+        SUM(COALESCE(current_penalty, initial_penalty, 0)) AS total_penalties,
         AVG(gravity) AS avg_gravity
     FROM violations
     GROUP BY activity_nr
