@@ -37,8 +37,9 @@ def sync():
 
     print(f"Syncing {len(df)} employer profiles to Postgres...")
 
-    # Add required columns for Postgres schema
-    df["employer_id"] = [str(uuid4()) for _ in range(len(df))]  # temporary — replaced by Splink cluster mapping
+    # employer_id comes from dbt Gold model (via cluster_id_mapping)
+    # Convert to string if it's not already
+    df["employer_id"] = df["employer_id"].astype(str)
     df["snapshot_date"] = snapshot_date
     df["pipeline_run_id"] = pipeline_run_id
 

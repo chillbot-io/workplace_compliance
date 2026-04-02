@@ -24,30 +24,40 @@ export PIPELINE_RUN_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
 echo "=== Pipeline Run Starting — $(date -u) — Run ID: ${PIPELINE_RUN_ID} ===" | tee -a "$LOG_FILE"
 
 # Step 1: Ingest from DOL API
-echo "[Step 1/6] Ingesting from DOL API..." | tee -a "$LOG_FILE"
+echo "[Step 1/8] Ingesting from DOL API..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/ingest_dol.py" 2>&1 | tee -a "$LOG_FILE"
 
 # Step 2: Load bronze into DuckDB
-echo "[Step 2/6] Loading bronze into DuckDB..." | tee -a "$LOG_FILE"
+echo "[Step 2/8] Loading bronze into DuckDB..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/load_bronze.py" 2>&1 | tee -a "$LOG_FILE"
 
-# Step 3: Run dbt (seeds + models)
-echo "[Step 3/6] Running dbt..." | tee -a "$LOG_FILE"
+# Step 3: Run dbt staging + silver models (NOT gold — needs entity resolution first)
+echo "[Step 3/8] Running dbt (staging + silver)..." | tee -a "$LOG_FILE"
 cd "${PROJECT_DIR}/dbt"
 dbt seed --profiles-dir . 2>&1 | tee -a "$LOG_FILE"
-dbt run --profiles-dir . 2>&1 | tee -a "$LOG_FILE"
+dbt run --profiles-dir . --select staging silver 2>&1 | tee -a "$LOG_FILE"
 cd "${PROJECT_DIR}"
 
 # Step 4: Parse addresses
-echo "[Step 4/6] Parsing addresses..." | tee -a "$LOG_FILE"
+echo "[Step 4/8] Parsing addresses..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/parse_addresses.py" 2>&1 | tee -a "$LOG_FILE"
 
-# Step 5: Sync to Postgres (shadow-table swap)
-echo "[Step 5/6] Syncing to Postgres..." | tee -a "$LOG_FILE"
+# Step 5: Entity resolution (Splink)
+echo "[Step 5/8] Running entity resolution (Splink)..." | tee -a "$LOG_FILE"
+python "${PROJECT_DIR}/pipeline/entity_resolution.py" 2>&1 | tee -a "$LOG_FILE"
+
+# Step 6: Run dbt gold models (aggregates by Splink clusters)
+echo "[Step 6/8] Running dbt (gold)..." | tee -a "$LOG_FILE"
+cd "${PROJECT_DIR}/dbt"
+dbt run --profiles-dir . --select gold 2>&1 | tee -a "$LOG_FILE"
+cd "${PROJECT_DIR}"
+
+# Step 7: Sync to Postgres (shadow-table swap)
+echo "[Step 7/8] Syncing to Postgres..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/sync.py" 2>&1 | tee -a "$LOG_FILE"
 
-# Step 6: Validate sync
-echo "[Step 6/6] Validating sync..." | tee -a "$LOG_FILE"
+# Step 8: Validate sync
+echo "[Step 8/8] Validating sync..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/validate_sync.py" 2>&1 | tee -a "$LOG_FILE"
 
 echo "=== Pipeline Run Complete — $(date -u) ===" | tee -a "$LOG_FILE"
