@@ -26,7 +26,7 @@ osha AS (
 osha_with_employer AS (
     SELECT
         o.*,
-        COALESCE(c.employer_id, o.activity_nr) AS employer_id
+        COALESCE(c.employer_id, CAST(o.activity_nr AS VARCHAR)) AS employer_id
     FROM osha o
     LEFT JOIN cluster_map c ON o.activity_nr = c.unique_id
 ),
