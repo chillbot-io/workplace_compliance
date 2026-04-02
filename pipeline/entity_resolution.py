@@ -57,8 +57,13 @@ def run_deduplication():
 
     print(f"Starting entity resolution on {count} OSHA inspection records...")
 
+    # Check if address_key exists (parse_addresses.py may not have run yet)
+    columns = [row[0] for row in con.execute("DESCRIBE osha_inspection_norm").fetchall()]
+    has_address_key = "address_key" in columns
+
     # Prepare the input table — one row per establishment with dedup fields
-    con.execute("""
+    address_key_select = "address_key" if has_address_key else "NULL AS address_key"
+    con.execute(f"""
         CREATE OR REPLACE TABLE er_input AS
         SELECT
             activity_nr AS unique_id,
@@ -67,7 +72,7 @@ def run_deduplication():
             zip5,
             site_state,
             naics_4digit,
-            address_key
+            {address_key_select}
         FROM osha_inspection_norm
         WHERE name_normalized IS NOT NULL
           AND name_normalized != ''
