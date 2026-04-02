@@ -11,6 +11,17 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV="${PROJECT_DIR}/venv"
 LOG_FILE="/var/log/pipeline-$(date +%Y%m%d).log"
 
+# Prevent concurrent runs
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+    echo "Another pipeline run is already in progress. Exiting." | tee -a "$LOG_FILE"
+    exit 1
+fi
+
+# Validate prerequisites
+if [[ ! -f "${VENV}/bin/activate" ]]; then echo "Venv not found at ${VENV}"; exit 1; fi
+if [[ ! -f "${PROJECT_DIR}/.env.pipeline" ]]; then echo "Missing .env.pipeline"; exit 1; fi
+
 # Activate venv
 source "${VENV}/bin/activate"
 

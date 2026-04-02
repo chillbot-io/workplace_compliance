@@ -76,9 +76,10 @@ def main():
     null_count = parsed["address_key"].isna().sum()
     print(f"OSHA: {len(parsed) - null_count} parsed, {null_count} NULL address_key")
 
-    con.register("osha_address_keys", parsed)
     con.execute("DROP TABLE IF EXISTS osha_address_keys")
-    con.execute("CREATE TABLE osha_address_keys AS SELECT * FROM osha_address_keys")
+    con.register("_osha_addr_df", parsed)
+    con.execute("CREATE TABLE osha_address_keys AS SELECT * FROM _osha_addr_df")
+    con.unregister("_osha_addr_df")
 
     # Update osha_inspection_norm with address_key
     con.execute("""
@@ -110,9 +111,10 @@ def main():
     null_count = whd_parsed["address_key"].isna().sum()
     print(f"WHD: {len(whd_parsed) - null_count} parsed, {null_count} NULL address_key")
 
-    con.register("whd_address_keys", whd_parsed)
     con.execute("DROP TABLE IF EXISTS whd_address_keys")
-    con.execute("CREATE TABLE whd_address_keys AS SELECT * FROM whd_address_keys")
+    con.register("_whd_addr_df", whd_parsed)
+    con.execute("CREATE TABLE whd_address_keys AS SELECT * FROM _whd_addr_df")
+    con.unregister("_whd_addr_df")
 
     con.execute("""
         ALTER TABLE whd_norm ADD COLUMN IF NOT EXISTS address_key TEXT

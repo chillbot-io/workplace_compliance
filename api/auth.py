@@ -129,7 +129,7 @@ async def check_monthly_quota(key_row: dict):
 
     if count >= limit:
         d = date.today()
-        resets = date(d.year, d.month % 12 + 1, 1) if d.month < 12 else date(d.year + 1, 1, 1)
+        resets = date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
         raise HTTPException(429, detail={
             "error": "monthly_quota_exceeded",
             "message": f"Monthly quota of {limit} lookups exceeded.",

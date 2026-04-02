@@ -59,6 +59,9 @@ async def health():
     status_code = 503
     message = None
 
+    if not pool:
+        return JSONResponse({"status": "unhealthy", "checks": checks, "api_version": "1.0"}, status_code=503)
+
     try:
         async with pool.acquire() as con:
             # Check 1: database connectivity

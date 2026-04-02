@@ -106,7 +106,7 @@ def sync():
             buffer,
         )
 
-        staging_count = cur.execute("SELECT COUNT(*) FROM employer_profile_staging")
+        cur.execute("SELECT COUNT(*) FROM employer_profile_staging")
         staging_count = cur.fetchone()[0]
         print(f"Staging table loaded: {staging_count} rows")
 

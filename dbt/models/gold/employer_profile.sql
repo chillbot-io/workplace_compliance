@@ -50,13 +50,14 @@ employer_osha AS (
     SELECT
         employer_id,
         -- Use most common values for identity fields
-        MODE() WITHIN GROUP (ORDER BY estab_name) AS employer_name,
-        MODE() WITHIN GROUP (ORDER BY site_address) AS address,
-        MODE() WITHIN GROUP (ORDER BY site_city) AS city,
-        MODE() WITHIN GROUP (ORDER BY site_state) AS state,
-        MODE() WITHIN GROUP (ORDER BY zip5) AS zip5,
-        MODE() WITHIN GROUP (ORDER BY naics_code) AS naics_code,
-        MODE() WITHIN GROUP (ORDER BY naics_4digit) AS naics_4digit,
+        -- DuckDB doesn't support MODE() WITHIN GROUP; use FIRST_VALUE via most recent inspection
+        FIRST(estab_name ORDER BY open_date DESC) AS employer_name,
+        FIRST(site_address ORDER BY open_date DESC) AS address,
+        FIRST(site_city ORDER BY open_date DESC) AS city,
+        FIRST(site_state ORDER BY open_date DESC) AS state,
+        FIRST(zip5 ORDER BY open_date DESC) AS zip5,
+        FIRST(naics_code ORDER BY open_date DESC) AS naics_code,
+        FIRST(naics_4digit ORDER BY open_date DESC) AS naics_4digit,
         -- 5yr aggregates
         COUNT(DISTINCT activity_nr) AS osha_inspections_5yr,
         SUM(violation_count) AS osha_violations_5yr,

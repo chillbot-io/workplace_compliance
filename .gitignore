@@ -10,9 +10,14 @@ __pycache__/
 .venv/
 venv/
 
+# Secrets
+*.pem
+*.key
+
 # DuckDB
 *.duckdb
 *.duckdb.wal
+*.duckdb-shm
 
 # Data
 /data/

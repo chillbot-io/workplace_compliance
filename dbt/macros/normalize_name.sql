@@ -1,22 +1,23 @@
 {% macro normalize_name(column_name) %}
     -- Normalize employer name: uppercase, strip non-alpha, expand abbreviations, remove suffixes
-    REGEXP_REPLACE(
+    -- DuckDB regexp_replace replaces all occurrences by default (no 'g' flag needed)
+    TRIM(REGEXP_REPLACE(
         REGEXP_REPLACE(
             REGEXP_REPLACE(
                 REGEXP_REPLACE(
                     REGEXP_REPLACE(
                         REGEXP_REPLACE(
                             UPPER(TRIM({{ column_name }})),
-                            '[^A-Z0-9 ]', '', 'g'          -- strip non-alphanumeric
+                            '[^A-Z0-9 ]', ''               -- strip non-alphanumeric
                         ),
-                        '\b(INC|INCORPORATED)\b', '', 'g'   -- remove corporate suffixes
+                        '\b(INC|INCORPORATED)\b', ''        -- remove corporate suffixes
                     ),
-                    '\b(LLC|LC|L L C)\b', '', 'g'
+                    '\b(LLC|LC|L L C)\b', ''
                 ),
-                '\b(CORP|CORPORATION)\b', '', 'g'
+                '\b(CORP|CORPORATION)\b', ''
             ),
-            '\b(CO|COMPANY)\b', '', 'g'
+            '\b(CO|COMPANY)\b', ''
         ),
-        '\s+', ' ', 'g'                                    -- collapse whitespace
-    )
+        '\s+', ' '                                          -- collapse whitespace
+    ))
 {% endmacro %}
