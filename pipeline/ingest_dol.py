@@ -37,9 +37,9 @@ TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 PAGE_SIZE = 200
 BURST_SIZE = 10           # requests per burst (13 actual limit, generous safety margin)
-BURST_COOLDOWN = 65       # seconds of SILENCE after burst (60s window + 5s pad)
-RETRY_WAIT = 65           # seconds to wait on unexpected 429 (must be > 60s window)
-MAX_RETRIES = 5           # max consecutive 429s before giving up
+BURST_COOLDOWN = 65       # seconds of SILENCE after successful burst
+RATE_LIMIT_WAIT = 120     # seconds to wait after hitting 429 (must be long enough to fully reset)
+MAX_RETRIES = 10          # max consecutive 429s before giving up
 CHECKPOINT_INTERVAL = 5000
 
 SOURCES = {
@@ -146,11 +146,14 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             records, hit_limit = fetch_one_page(url, params, name)
 
             if hit_limit:
-                # Rate limited — stop burst immediately, do NOT make any more requests
+                # Rate limited — stop burst, wait LONGER than normal cooldown
                 consecutive_429s += 1
                 if consecutive_429s >= MAX_RETRIES:
                     print(f"[{name}] Too many consecutive 429s, stopping")
                     done = True
+                else:
+                    print(f"[{name}] Rate limited, waiting {RATE_LIMIT_WAIT}s (attempt {consecutive_429s}/{MAX_RETRIES})...")
+                    time.sleep(RATE_LIMIT_WAIT)
                 break
 
             consecutive_429s = 0  # reset on success
@@ -217,7 +220,12 @@ def main():
     start_time = time.time()
     errors = []
 
-    for source_name, config in SOURCES.items():
+    source_list = list(SOURCES.items())
+    for idx, (source_name, config) in enumerate(source_list):
+        # Wait between sources to let rate limit fully reset
+        if idx > 0:
+            print(f"=== Waiting {RATE_LIMIT_WAIT}s between sources ===")
+            time.sleep(RATE_LIMIT_WAIT)
         try:
             df = fetch_source(source_name, config)
             save_parquet(df, source_name)
