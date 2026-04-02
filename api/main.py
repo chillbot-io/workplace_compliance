@@ -1,6 +1,5 @@
 """
 api/main.py — FastAPI application entry point.
-Minimal skeleton for Phase 0 — health check only.
 """
 
 import os
@@ -11,6 +10,9 @@ import asyncpg
 import structlog
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+
+from api.auth import set_pool
+from api.routes.employers import router as employers_router
 
 structlog.configure(
     processors=[
@@ -32,13 +34,17 @@ async def lifespan(app: FastAPI):
         log.error("No PG_DSN or DATABASE_URL set")
         raise RuntimeError("Set PG_DSN or DATABASE_URL")
     pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
-    log.info("database_pool_ready", dsn=dsn.split("@")[-1])  # log host only, not creds
+    set_pool(pool)  # share pool with auth module
+    log.info("database_pool_ready", dsn=dsn.split("@")[-1])
     yield
     await pool.close()
     log.info("database_pool_closed")
 
 
 app = FastAPI(title="Employer Compliance API", version="1.0", lifespan=lifespan)
+
+# Register routes
+app.include_router(employers_router)
 
 
 @app.get("/v1/health")
