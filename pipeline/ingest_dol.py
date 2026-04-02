@@ -2,11 +2,12 @@
 pipeline/ingest_dol.py — Fetch OSHA Inspections, OSHA Violations, and WHD data from DOL API v4.
 Writes raw Parquet files to /data/bronze/{source}/{date}/.
 
-Saves incrementally every CHECKPOINT_INTERVAL records so progress is never lost.
-Resumes from existing parquet if present (skips already-fetched offsets).
+Rate limit strategy: DOL v4 allows 16 requests per ~30-second window.
+We fire 14 requests in a burst (with safety margin), then sleep 35 seconds.
+This yields ~2800 records per cycle, ~5600 records/minute.
 
-DOL migrated from v2 (api.dol.gov) to v4 (apiprod.dol.gov) in late 2024.
-v4 uses limit/offset pagination and API key as query parameter.
+Saves checkpoints every CHECKPOINT_INTERVAL records so progress survives crashes.
+Resumes from existing parquet if present.
 
 Usage:
     python pipeline/ingest_dol.py
@@ -21,7 +22,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
+import requests as req
 import pandas as pd
 
 DOL_API_KEY = os.environ.get("DOL_API_KEY")
@@ -35,10 +36,11 @@ BRONZE_DIR = Path(os.environ.get("BRONZE_DIR", "/data/bronze"))
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 PAGE_SIZE = 200
-RATE_LIMIT_DELAY = 30.0  # seconds between requests — DOL v4 has aggressive undocumented limits
-RATE_LIMIT_RETRIES = 10  # max retries on 429
-RATE_LIMIT_BACKOFF = 300  # seconds (5 min) to wait on 429 — their cooldown is long
-CHECKPOINT_INTERVAL = 2000  # save to disk every N records
+BURST_SIZE = 14           # requests per burst (16 limit, 2 safety margin)
+BURST_COOLDOWN = 35       # seconds to wait after each burst
+RETRY_WAIT = 60           # seconds to wait on unexpected 429
+MAX_RETRIES = 5           # retries per request on 429
+CHECKPOINT_INTERVAL = 5000
 
 SOURCES = {
     "osha_inspections": {
@@ -79,7 +81,6 @@ def get_parquet_path(source_name: str) -> Path:
 
 
 def load_existing(source_name: str) -> pd.DataFrame:
-    """Load existing parquet if present (for resume after interruption)."""
     path = get_parquet_path(source_name)
     if path.exists():
         df = pd.read_parquet(path)
@@ -89,99 +90,103 @@ def load_existing(source_name: str) -> pd.DataFrame:
 
 
 def save_checkpoint(df: pd.DataFrame, source_name: str):
-    """Save current progress to parquet."""
     path = get_parquet_path(source_name)
     df.to_parquet(path, index=False)
-    print(f"[{source_name}] Checkpoint saved: {len(df)} records to {path}")
+    print(f"[{source_name}] Checkpoint: {len(df)} records saved")
+
+
+def fetch_one_page(url: str, params: dict, source_name: str) -> list | None:
+    """Fetch a single page with retry on 429."""
+    for retry in range(MAX_RETRIES):
+        try:
+            resp = req.get(url, params=params, timeout=60)
+            if resp.status_code == 429:
+                wait = RETRY_WAIT * (retry + 1)
+                print(f"[{source_name}] 429 at offset {params.get('offset')}, waiting {wait}s (retry {retry+1}/{MAX_RETRIES})")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict) and "data" in data:
+                return data["data"]
+            return data if isinstance(data, list) else []
+        except req.RequestException as e:
+            if retry < MAX_RETRIES - 1:
+                print(f"[{source_name}] Error: {e}, retrying in {RETRY_WAIT}s...")
+                time.sleep(RETRY_WAIT)
+                continue
+            print(f"[{source_name}] Failed after {MAX_RETRIES} retries: {e}", file=sys.stderr)
+            return None
+    return None
 
 
 def fetch_source(name: str, config: dict) -> pd.DataFrame:
-    """Fetch all records for a DOL API v4 source with limit/offset pagination."""
+    """Fetch all records using burst strategy: BURST_SIZE requests, then cooldown."""
     api_path = config["path"]
     url = f"{BASE_URL}/{api_path}/json"
 
-    # Resume from existing data
     existing_df = load_existing(name)
-    start_offset = len(existing_df)
-
     all_records = existing_df.to_dict("records") if not existing_df.empty else []
-    offset = start_offset
+    offset = len(all_records)
     total_fetched = len(all_records)
     last_checkpoint = total_fetched
+    done = False
 
-    print(f"[{name}] Starting fetch from {url} at offset {offset}...")
+    print(f"[{name}] Fetching from offset {offset}...")
 
-    while True:
-        params = {
-            "limit": PAGE_SIZE,
-            "offset": offset,
-            "sort": "desc",
-            "sort_by": config.get("sort_by", "load_dt"),
-            "X-API-KEY": DOL_API_KEY,
-        }
+    while not done:
+        burst_start = time.time()
+        burst_count = 0
 
-        resp = None
-        for retry in range(RATE_LIMIT_RETRIES):
-            try:
-                resp = requests.get(url, params=params, timeout=60)
-                if resp.status_code == 429:
-                    wait = RATE_LIMIT_BACKOFF * (retry + 1)
-                    print(f"[{name}] Rate limited (429) at offset {offset}, waiting {wait}s (retry {retry + 1}/{RATE_LIMIT_RETRIES})...")
-                    time.sleep(wait)
-                    continue
-                resp.raise_for_status()
+        # Fire a burst of requests
+        for _ in range(BURST_SIZE):
+            params = {
+                "limit": PAGE_SIZE,
+                "offset": offset,
+                "sort": "desc",
+                "sort_by": config.get("sort_by", "load_dt"),
+                "X-API-KEY": DOL_API_KEY,
+            }
+
+            records = fetch_one_page(url, params, name)
+
+            if records is None:
+                # Fatal error — save what we have
+                done = True
                 break
-            except requests.RequestException as e:
-                if retry < RATE_LIMIT_RETRIES - 1:
-                    wait = RATE_LIMIT_BACKOFF * (retry + 1)
-                    print(f"[{name}] Request error at offset {offset}: {e}, retrying in {wait}s...")
-                    time.sleep(wait)
-                    continue
-                print(f"[{name}] ERROR at offset {offset}: {e}", file=sys.stderr)
-                if total_fetched > 0:
-                    print(f"[{name}] Saving {total_fetched} records fetched so far")
-                    resp = None
-                    break
-                raise
 
-        if resp is None or resp.status_code == 429:
-            print(f"[{name}] Stopping after {total_fetched} records (rate limit exhausted)")
-            break
+            if not records:
+                # No more data
+                done = True
+                break
 
-        data = resp.json()
+            all_records.extend(records)
+            total_fetched += len(records)
+            offset += PAGE_SIZE
+            burst_count += 1
 
-        # v4 API wraps results in "data" key
-        if isinstance(data, dict) and "data" in data:
-            records = data["data"]
-        elif isinstance(data, list):
-            records = data
-        else:
-            print(f"[{name}] Unexpected response format: {list(data.keys()) if isinstance(data, dict) else type(data)}")
-            break
+            if len(records) < PAGE_SIZE:
+                done = True
+                break
 
-        if not records:
-            break
+            # Small delay within burst to avoid overwhelming the server
+            time.sleep(0.5)
 
-        all_records.extend(records)
-        total_fetched += len(records)
-        offset += PAGE_SIZE
+        # Progress update
+        if burst_count > 0:
+            print(f"[{name}] {total_fetched} records ({burst_count} pages in {time.time()-burst_start:.1f}s)")
 
-        if total_fetched % 5000 == 0 or len(records) < PAGE_SIZE:
-            print(f"[{name}] Fetched {total_fetched} records...")
-
-        # Checkpoint every CHECKPOINT_INTERVAL new records
+        # Checkpoint
         if total_fetched - last_checkpoint >= CHECKPOINT_INTERVAL:
             df = pd.DataFrame(all_records)
-            available_fields = [f for f in config["fields"] if f in df.columns]
-            if available_fields:
-                df = df[available_fields]
-            save_checkpoint(df, name)
+            available = [f for f in config["fields"] if f in df.columns]
+            save_checkpoint(df[available] if available else df, name)
             last_checkpoint = total_fetched
 
-        if len(records) < PAGE_SIZE:
-            break
-
-        time.sleep(RATE_LIMIT_DELAY)
+        # Cooldown between bursts
+        if not done:
+            print(f"[{name}] Cooling down {BURST_COOLDOWN}s...")
+            time.sleep(BURST_COOLDOWN)
 
     print(f"[{name}] Complete: {total_fetched} total records")
 
@@ -189,21 +194,17 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(all_records)
-    available_fields = [f for f in config["fields"] if f in df.columns]
-    if available_fields:
-        return df[available_fields]
-    return df
+    available = [f for f in config["fields"] if f in df.columns]
+    return df[available] if available else df
 
 
 def save_parquet(df: pd.DataFrame, source_name: str):
-    """Save DataFrame as Parquet in bronze directory."""
     if df.empty:
         print(f"[{source_name}] WARNING: No records to save", file=sys.stderr)
         return
-
     path = get_parquet_path(source_name)
     df.to_parquet(path, index=False)
-    print(f"[{source_name}] Saved {len(df)} records to {path}")
+    print(f"[{source_name}] Final save: {len(df)} records to {path}")
 
 
 def main():
@@ -220,7 +221,8 @@ def main():
             errors.append(source_name)
 
     elapsed = time.time() - start_time
-    print(f"=== DOL Ingestion Complete — {elapsed:.1f}s ===")
+    hours = elapsed / 3600
+    print(f"=== DOL Ingestion Complete — {hours:.1f}h ({elapsed:.0f}s) ===")
 
     if errors:
         print(f"WARNING: {len(errors)} source(s) failed: {', '.join(errors)}", file=sys.stderr)
