@@ -2,6 +2,9 @@
 pipeline/ingest_dol.py — Fetch OSHA Inspections, OSHA Violations, and WHD data from DOL API v4.
 Writes raw Parquet files to /data/bronze/{source}/{date}/.
 
+Saves incrementally every CHECKPOINT_INTERVAL records so progress is never lost.
+Resumes from existing parquet if present (skips already-fetched offsets).
+
 DOL migrated from v2 (api.dol.gov) to v4 (apiprod.dol.gov) in late 2024.
 v4 uses limit/offset pagination and API key as query parameter.
 
@@ -32,9 +35,10 @@ BRONZE_DIR = Path(os.environ.get("BRONZE_DIR", "/data/bronze"))
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 PAGE_SIZE = 200
-RATE_LIMIT_DELAY = 4.0  # seconds between requests — DOL v4 has undocumented rate limits (~15 req/min safe)
+RATE_LIMIT_DELAY = 6.0  # seconds between requests — DOL v4 rate limits aggressively
 RATE_LIMIT_RETRIES = 5  # max retries on 429
 RATE_LIMIT_BACKOFF = 60  # seconds to wait on 429 before retrying
+CHECKPOINT_INTERVAL = 5000  # save to disk every N records
 
 SOURCES = {
     "osha_inspections": {
@@ -68,16 +72,44 @@ SOURCES = {
 }
 
 
+def get_parquet_path(source_name: str) -> Path:
+    out_dir = BRONZE_DIR / source_name / TODAY
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir / f"{source_name}.parquet"
+
+
+def load_existing(source_name: str) -> pd.DataFrame:
+    """Load existing parquet if present (for resume after interruption)."""
+    path = get_parquet_path(source_name)
+    if path.exists():
+        df = pd.read_parquet(path)
+        print(f"[{source_name}] Resuming — {len(df)} records already on disk")
+        return df
+    return pd.DataFrame()
+
+
+def save_checkpoint(df: pd.DataFrame, source_name: str):
+    """Save current progress to parquet."""
+    path = get_parquet_path(source_name)
+    df.to_parquet(path, index=False)
+    print(f"[{source_name}] Checkpoint saved: {len(df)} records to {path}")
+
+
 def fetch_source(name: str, config: dict) -> pd.DataFrame:
     """Fetch all records for a DOL API v4 source with limit/offset pagination."""
     api_path = config["path"]
     url = f"{BASE_URL}/{api_path}/json"
 
-    all_records = []
-    offset = 0
-    total_fetched = 0
+    # Resume from existing data
+    existing_df = load_existing(name)
+    start_offset = len(existing_df)
 
-    print(f"[{name}] Starting fetch from {url}...")
+    all_records = existing_df.to_dict("records") if not existing_df.empty else []
+    offset = start_offset
+    total_fetched = len(all_records)
+    last_checkpoint = total_fetched
+
+    print(f"[{name}] Starting fetch from {url} at offset {offset}...")
 
     while True:
         params = {
@@ -107,7 +139,7 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
                     continue
                 print(f"[{name}] ERROR at offset {offset}: {e}", file=sys.stderr)
                 if total_fetched > 0:
-                    print(f"[{name}] Continuing with {total_fetched} records fetched so far")
+                    print(f"[{name}] Saving {total_fetched} records fetched so far")
                     resp = None
                     break
                 raise
@@ -137,6 +169,15 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
         if total_fetched % 5000 == 0 or len(records) < PAGE_SIZE:
             print(f"[{name}] Fetched {total_fetched} records...")
 
+        # Checkpoint every CHECKPOINT_INTERVAL new records
+        if total_fetched - last_checkpoint >= CHECKPOINT_INTERVAL:
+            df = pd.DataFrame(all_records)
+            available_fields = [f for f in config["fields"] if f in df.columns]
+            if available_fields:
+                df = df[available_fields]
+            save_checkpoint(df, name)
+            last_checkpoint = total_fetched
+
         if len(records) < PAGE_SIZE:
             break
 
@@ -148,7 +189,6 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(all_records)
-    # Keep only the fields we care about
     available_fields = [f for f in config["fields"] if f in df.columns]
     if available_fields:
         return df[available_fields]
@@ -161,12 +201,9 @@ def save_parquet(df: pd.DataFrame, source_name: str):
         print(f"[{source_name}] WARNING: No records to save", file=sys.stderr)
         return
 
-    out_dir = BRONZE_DIR / source_name / TODAY
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{source_name}.parquet"
-
-    df.to_parquet(out_path, index=False)
-    print(f"[{source_name}] Saved {len(df)} records to {out_path}")
+    path = get_parquet_path(source_name)
+    df.to_parquet(path, index=False)
+    print(f"[{source_name}] Saved {len(df)} records to {path}")
 
 
 def main():
