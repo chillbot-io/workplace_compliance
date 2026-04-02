@@ -37,8 +37,8 @@ TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 PAGE_SIZE = 200
 BURST_SIZE = 14           # requests per burst (16 limit, 2 safety margin)
-BURST_COOLDOWN = 35       # seconds to wait after each burst
-RETRY_WAIT = 60           # seconds to wait on unexpected 429
+BURST_COOLDOWN = 40       # seconds of SILENCE after burst (window is 35s, pad 5s)
+RETRY_WAIT = 45           # seconds to wait on unexpected 429 (must be > 35s window)
 MAX_RETRIES = 5           # retries per request on 429
 CHECKPOINT_INTERVAL = 5000
 
@@ -95,29 +95,22 @@ def save_checkpoint(df: pd.DataFrame, source_name: str):
     print(f"[{source_name}] Checkpoint: {len(df)} records saved")
 
 
-def fetch_one_page(url: str, params: dict, source_name: str) -> list | None:
-    """Fetch a single page with retry on 429."""
-    for retry in range(MAX_RETRIES):
-        try:
-            resp = req.get(url, params=params, timeout=60)
-            if resp.status_code == 429:
-                wait = RETRY_WAIT * (retry + 1)
-                print(f"[{source_name}] 429 at offset {params.get('offset')}, waiting {wait}s (retry {retry+1}/{MAX_RETRIES})")
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            data = resp.json()
-            if isinstance(data, dict) and "data" in data:
-                return data["data"]
-            return data if isinstance(data, list) else []
-        except req.RequestException as e:
-            if retry < MAX_RETRIES - 1:
-                print(f"[{source_name}] Error: {e}, retrying in {RETRY_WAIT}s...")
-                time.sleep(RETRY_WAIT)
-                continue
-            print(f"[{source_name}] Failed after {MAX_RETRIES} retries: {e}", file=sys.stderr)
-            return None
-    return None
+def fetch_one_page(url: str, params: dict, source_name: str) -> tuple[list | None, bool]:
+    """Fetch a single page. Returns (records, hit_rate_limit).
+    On 429: returns (None, True) — caller must wait BURST_COOLDOWN before ANY request."""
+    try:
+        resp = req.get(url, params=params, timeout=60)
+        if resp.status_code == 429:
+            print(f"[{source_name}] 429 at offset {params.get('offset')}")
+            return None, True
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict) and "data" in data:
+            return data["data"], False
+        return (data if isinstance(data, list) else []), False
+    except req.RequestException as e:
+        print(f"[{source_name}] Error at offset {params.get('offset')}: {e}", file=sys.stderr)
+        return None, False
 
 
 def fetch_source(name: str, config: dict) -> pd.DataFrame:
@@ -134,6 +127,8 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
 
     print(f"[{name}] Fetching from offset {offset}...")
 
+    consecutive_429s = 0
+
     while not done:
         burst_start = time.time()
         burst_count = 0
@@ -148,10 +143,20 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
                 "X-API-KEY": DOL_API_KEY,
             }
 
-            records = fetch_one_page(url, params, name)
+            records, hit_limit = fetch_one_page(url, params, name)
+
+            if hit_limit:
+                # Rate limited — stop burst immediately, do NOT make any more requests
+                consecutive_429s += 1
+                if consecutive_429s >= MAX_RETRIES:
+                    print(f"[{name}] Too many consecutive 429s, stopping")
+                    done = True
+                break
+
+            consecutive_429s = 0  # reset on success
 
             if records is None:
-                # Fatal error — save what we have
+                # Network error — save what we have
                 done = True
                 break
 
@@ -169,8 +174,8 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
                 done = True
                 break
 
-            # Small delay within burst to avoid overwhelming the server
-            time.sleep(0.5)
+            # Small delay within burst
+            time.sleep(0.3)
 
         # Progress update
         if burst_count > 0:
@@ -183,9 +188,9 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             save_checkpoint(df[available] if available else df, name)
             last_checkpoint = total_fetched
 
-        # Cooldown between bursts
+        # Cooldown — MUST make zero requests during this window
         if not done:
-            print(f"[{name}] Cooling down {BURST_COOLDOWN}s...")
+            print(f"[{name}] Cooldown {BURST_COOLDOWN}s (no requests)...")
             time.sleep(BURST_COOLDOWN)
 
     print(f"[{name}] Complete: {total_fetched} total records")
