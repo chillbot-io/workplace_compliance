@@ -35,9 +35,9 @@ BRONZE_DIR = Path(os.environ.get("BRONZE_DIR", "/data/bronze"))
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 PAGE_SIZE = 200
-RATE_LIMIT_DELAY = 6.0  # seconds between requests — DOL v4 rate limits aggressively
-RATE_LIMIT_RETRIES = 5  # max retries on 429
-RATE_LIMIT_BACKOFF = 60  # seconds to wait on 429 before retrying
+RATE_LIMIT_DELAY = 12.0  # seconds between requests — DOL v4 allows ~5 req/min sustained
+RATE_LIMIT_RETRIES = 10  # max retries on 429
+RATE_LIMIT_BACKOFF = 120  # seconds to wait on 429 before retrying (their cooldown is long)
 CHECKPOINT_INTERVAL = 5000  # save to disk every N records
 
 SOURCES = {
