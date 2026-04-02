@@ -6,10 +6,12 @@
 set -euo pipefail
 
 IMAGE_TAG="${1:?Usage: deploy.sh <image_tag>}"
+PROJECT_DIR="${DEPLOY_DIR:-/opt/employer-compliance}"
 IMAGE="ghcr.io/chillbot-io/workplace_compliance:${IMAGE_TAG}"
-STATE_FILE="/opt/employer-compliance/.current_image_tag"
-COMPOSE_FILE="/opt/employer-compliance/docker-compose.api.yml"
-HEALTH_URL="http://localhost:8000/v1/health"
+STATE_FILE="${PROJECT_DIR}/.current_image_tag"
+COMPOSE_FILE="${PROJECT_DIR}/docker-compose.api.yml"
+HEALTH_URL="${HEALTH_URL:-http://localhost:8000/v1/health}"
+HEALTH_TIMEOUT=60  # seconds to wait for health check
 
 # Record current image for rollback
 PREV_TAG=""
@@ -24,29 +26,28 @@ echo "${IMAGE_TAG}" > "$STATE_FILE"
 docker compose -f "$COMPOSE_FILE" pull api
 docker compose -f "$COMPOSE_FILE" up -d api
 
-# Wait for container to start
-echo "Waiting for health check..."
-sleep 5
-
-# Health check (3 attempts)
+# Poll health check with timeout
+echo "Waiting for health check (timeout: ${HEALTH_TIMEOUT}s)..."
 HEALTHY=false
-for i in 1 2 3; do
+ELAPSED=0
+while [ "$ELAPSED" -lt "$HEALTH_TIMEOUT" ]; do
     if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
         HEALTHY=true
         break
     fi
-    echo "Health check attempt ${i}/3 failed, retrying in 5s..."
-    sleep 5
+    sleep 3
+    ELAPSED=$((ELAPSED + 3))
+    echo "  ... ${ELAPSED}s elapsed"
 done
 
 if [ "$HEALTHY" = true ]; then
-    echo "Deploy successful: ${IMAGE_TAG}"
+    echo "Deploy successful: ${IMAGE_TAG} (healthy after ${ELAPSED}s)"
 else
-    echo "HEALTH CHECK FAILED — rolling back to ${PREV_TAG}"
+    echo "HEALTH CHECK FAILED after ${HEALTH_TIMEOUT}s — rolling back to ${PREV_TAG}"
     if [ -n "$PREV_TAG" ]; then
         echo "${PREV_TAG}" > "$STATE_FILE"
         docker compose -f "$COMPOSE_FILE" up -d api
-        sleep 5
+        sleep 10
         if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
             echo "Rollback successful: ${PREV_TAG}"
         else
