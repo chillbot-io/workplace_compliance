@@ -2,10 +2,25 @@
 api/routes/employers.py — Employer search, direct lookup, and inspections endpoints.
 """
 
+import json
+from decimal import Decimal
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse
 
 from api.auth import check_scope, check_monthly_quota, record_usage, get_quota_headers, get_pool
+
+
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, UUID):
+            return str(obj)
+        if hasattr(obj, "isoformat"):
+            return obj.isoformat()
+        return super().default(obj)
 
 router = APIRouter(prefix="/v1")
 
@@ -187,22 +202,12 @@ async def get_inspections(
 def _format_employer(row) -> dict:
     """Format a database row into the API response shape."""
     r = dict(row)
-    # Remove internal fields and convert types
+    # Remove internal fields
     for key in ["sim_score", "created_at", "updated_at", "pipeline_run_id"]:
         r.pop(key, None)
 
-    # Convert date/datetime objects to strings
-    for key, val in r.items():
-        if hasattr(val, "isoformat"):
-            r[key] = val.isoformat()
-        elif isinstance(val, (bytes, memoryview)):
-            r[key] = str(val)
-
-    # Convert UUID to string
-    if "employer_id" in r:
-        r["employer_id"] = str(r["employer_id"])
-
-    return r
+    # Roundtrip through custom encoder to handle Decimal, UUID, dates
+    return json.loads(json.dumps(r, cls=CustomEncoder))
 
 
 def _format_search_response(rows) -> dict:
