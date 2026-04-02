@@ -36,10 +36,10 @@ BRONZE_DIR = Path(os.environ.get("BRONZE_DIR", "/data/bronze"))
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 PAGE_SIZE = 200
-BURST_SIZE = 14           # requests per burst (16 limit, 2 safety margin)
-BURST_COOLDOWN = 40       # seconds of SILENCE after burst (window is 35s, pad 5s)
-RETRY_WAIT = 45           # seconds to wait on unexpected 429 (must be > 35s window)
-MAX_RETRIES = 5           # retries per request on 429
+BURST_SIZE = 10           # requests per burst (13 actual limit, generous safety margin)
+BURST_COOLDOWN = 65       # seconds of SILENCE after burst (60s window + 5s pad)
+RETRY_WAIT = 65           # seconds to wait on unexpected 429 (must be > 60s window)
+MAX_RETRIES = 5           # max consecutive 429s before giving up
 CHECKPOINT_INTERVAL = 5000
 
 SOURCES = {
@@ -100,8 +100,8 @@ def fetch_one_page(url: str, params: dict, source_name: str) -> tuple[list | Non
     On 429: returns (None, True) — caller must wait BURST_COOLDOWN before ANY request."""
     try:
         resp = req.get(url, params=params, timeout=60)
-        if resp.status_code == 429:
-            print(f"[{source_name}] 429 at offset {params.get('offset')}")
+        if resp.status_code in (429, 500, 502, 503):
+            print(f"[{source_name}] {resp.status_code} at offset {params.get('offset')} — treating as rate limit")
             return None, True
         resp.raise_for_status()
         data = resp.json()
