@@ -170,6 +170,77 @@ def main():
         print("ERROR: No parent-subsidiary mappings generated", file=sys.stderr)
         sys.exit(1)
 
+    # Append manual overrides for national chains that SEC data misses
+    # (OSHA establishment names don't match SEC subsidiary names exactly)
+    overrides = [
+        # Amazon variants in OSHA data
+        ("AMAZON COM SERVICES", "Amazon.com, Inc."),
+        ("AMAZONCOM SERVICES", "Amazon.com, Inc."),
+        ("AMAZONCOM DELIVERY SERVICES", "Amazon.com, Inc."),
+        ("AMAZON FULFILLMENT", "Amazon.com, Inc."),
+        ("AMAZON LOGISTICS", "Amazon.com, Inc."),
+        ("AMAZON WAREHOUSE", "Amazon.com, Inc."),
+        ("AMAZON DMS", "Amazon.com, Inc."),
+        ("AMAZON DELIVERY", "Amazon.com, Inc."),
+        ("WHOLE FOODS MARKET", "Amazon.com, Inc."),
+        # Walmart
+        ("WALMART", "Walmart Inc."),
+        ("WAL MART", "Walmart Inc."),
+        ("SAMS CLUB", "Walmart Inc."),
+        # Target
+        ("TARGET", "Target Corporation"),
+        # Kroger
+        ("KROGER", "The Kroger Co."),
+        ("FRED MEYER", "The Kroger Co."),
+        ("RALPHS GROCERY", "The Kroger Co."),
+        ("HARRIS TEETER", "The Kroger Co."),
+        # Costco
+        ("COSTCO", "Costco Wholesale Corporation"),
+        # Home improvement
+        ("HOME DEPOT", "The Home Depot, Inc."),
+        ("LOWES", "Lowe's Companies, Inc."),
+        # Fast food / restaurants
+        ("MCDONALDS", "McDonald's Corporation"),
+        ("STARBUCKS", "Starbucks Corporation"),
+        ("CHIPOTLE", "Chipotle Mexican Grill, Inc."),
+        ("SUBWAY", "Subway IP LLC"),
+        # Dollar stores
+        ("DOLLAR GENERAL", "Dollar General Corporation"),
+        ("DOLLAR TREE", "Dollar Tree, Inc."),
+        ("FAMILY DOLLAR", "Dollar Tree, Inc."),
+        # Shipping
+        ("FEDEX", "FedEx Corporation"),
+        ("FEDERAL EXPRESS", "FedEx Corporation"),
+        ("FEDEX GROUND", "FedEx Corporation"),
+        ("FEDEX FREIGHT", "FedEx Corporation"),
+        ("UNITED PARCEL", "United Parcel Service, Inc."),
+        # Meat processing
+        ("TYSON FOODS", "Tyson Foods, Inc."),
+        ("TYSON FRESH MEATS", "Tyson Foods, Inc."),
+        ("PILGRIMS PRIDE", "Pilgrim's Pride Corporation"),
+        ("JBS USA", "JBS USA Holdings, Inc."),
+        ("SMITHFIELD FOODS", "Smithfield Foods, Inc."),
+        ("SMITHFIELD FRESH", "Smithfield Foods, Inc."),
+        ("CARGILL MEAT", "Cargill, Incorporated"),
+        ("CARGILL", "Cargill, Incorporated"),
+        # Pharmacy / health
+        ("CVS PHARMACY", "CVS Health Corporation"),
+        ("CVS HEALTH", "CVS Health Corporation"),
+        ("WALGREENS", "Walgreens Boots Alliance, Inc."),
+        # Auto
+        ("TESLA", "Tesla, Inc."),
+        ("GENERAL MOTORS", "General Motors Company"),
+        ("FORD MOTOR", "Ford Motor Company"),
+        # Waste
+        ("WASTE MANAGEMENT", "Waste Management, Inc."),
+        ("REPUBLIC SERVICES", "Republic Services, Inc."),
+    ]
+
+    override_df = pd.DataFrame(overrides, columns=["name_pattern", "parent_name"])
+    before = len(df)
+    df = pd.concat([override_df, df]).drop_duplicates(subset=["name_pattern"], keep="first")
+    print(f"  Added {len(df) - before + len(override_df)} manual overrides (national chains)")
+
     # Save as dbt seed
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUTPUT_PATH, index=False)

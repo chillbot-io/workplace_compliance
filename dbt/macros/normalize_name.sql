@@ -9,8 +9,11 @@
                         REGEXP_REPLACE(
                             REGEXP_REPLACE(
                                 REGEXP_REPLACE(
-                                    UPPER(TRIM({{ column_name }})),
-                                    '[^A-Z0-9 ]', '', 'g'
+                                    REGEXP_REPLACE(
+                                        UPPER(TRIM({{ column_name }})),
+                                        '[^A-Z0-9 ]', '', 'g'
+                                    ),
+                                    '^[0-9]+ ', '', 'g'
                                 ),
                                 '( |^)(INC|INCORPORATED)( |$)', ' ', 'g'
                             ),
