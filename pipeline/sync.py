@@ -46,7 +46,7 @@ def sync():
     # Map DuckDB columns to Postgres employer_profile columns
     pg_columns = [
         "employer_id", "snapshot_date", "pipeline_run_id",
-        "employer_name", "address", "city", "state", "zip", "naics_code",
+        "employer_name", "address", "city", "state", "zip", "naics_code", "naics_description",
         "osha_inspections_5yr", "osha_violations_5yr",
         "osha_serious_willful", "osha_total_penalties",
         "osha_open_date_latest", "osha_avg_gravity",

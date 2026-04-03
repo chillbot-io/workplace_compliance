@@ -137,8 +137,12 @@ SELECT
         WHEN COALESCE(e.osha_serious_count_5yr, 0) >= 3
              AND COALESCE(e.osha_penalty_total_5yr, 0) > 50000 THEN true
         ELSE false
-    END AS svep_flag
+    END AS svep_flag,
+
+    -- NAICS description from seed
+    n.naics_title AS naics_description
 
 FROM employer_osha e
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
+LEFT JOIN naics_2022 n ON e.naics_code = n.naics_code
