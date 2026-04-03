@@ -102,8 +102,10 @@ def fetch_one_page(url: str, params: dict, source_name: str) -> tuple[list | Non
     """Fetch a single page. Returns (records, hit_rate_limit).
     On 429: returns (None, True) — caller must wait BURST_COOLDOWN before ANY request."""
     try:
-        # Pass API key as header, not query param (avoid leaking in logs/URLs)
+        # Some DOL endpoints require API key as query param, others accept header.
+        # Use both for compatibility.
         headers = {"X-API-KEY": DOL_API_KEY}
+        params["X-API-KEY"] = DOL_API_KEY
         resp = req.get(url, params=params, headers=headers, timeout=60)
         if resp.status_code in (429, 500, 502, 503):
             print(f"[{source_name}] {resp.status_code} at offset {params.get('offset')} — treating as rate limit")
