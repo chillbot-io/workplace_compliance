@@ -172,7 +172,7 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             consecutive_failures = 0  # reset on any success
             all_records.extend(records)
             total_fetched += len(records)
-            offset += PAGE_SIZE
+            offset += config.get("page_size", PAGE_SIZE)
             burst_count += 1
 
             if len(records) < config.get("page_size", PAGE_SIZE):
