@@ -25,45 +25,69 @@
 
 ---
 
-## Block 2: Web Frontend (Days 4-10)
+## Block 2: Website (Days 4-8)
 
-*Customers need a UI, not curl.*
+*Marketing site + developer dashboard. NOT a full SaaS app — the product is the API.*
+
+### 2A: Marketing Site (fastdol.com)
 
 | # | Task | Effort | Depends On | Status |
 |---|------|--------|-----------|--------|
 | 2.1 | Next.js project setup (repo, Tailwind, shadcn/ui) | 2 hours | — | |
-| 2.2 | Marketing landing page (hero, value prop, pricing table) | 1 day | 2.1 | |
-| 2.3 | Signup + login pages (hit /auth endpoints) | Half day | 2.1 | |
-| 2.4 | Dashboard home (usage stats, plan info, quick search) | 1 day | 2.3 | |
-| 2.5 | API keys management page (create, rotate, revoke) | Half day | 2.3 | |
-| 2.6 | Employer search page (type name → see risk profiles) | 1 day | 2.3 | |
-| 2.7 | Billing page (Stripe customer portal integration) | Half day | 2.3 | |
-| 2.8 | Metabase embedded dashboards (top violators, industry risk, heatmap) | 1 day | Metabase running | |
-| 2.9 | Deploy frontend (Vercel or same nginx) | 2 hours | 2.2-2.7 | |
+| 2.2 | Landing page — hero, value prop, how it works, data sources list | 1 day | 2.1 | |
+| 2.3 | Live demo widget — type employer name, see risk profile (no signup needed) | Half day | 2.2 | |
+| 2.4 | Pricing page — tiers table, FAQ, CTA to signup | Half day | 2.1 | |
+| 2.5 | Deploy to Vercel (fastdol.com) | 1 hour | 2.2-2.4 | |
 
----
-
-## Block 3: API Documentation (Days 8-9)
-
-*Developers won't use an API without docs.*
+### 2B: Auth Pages (fastdol.com/signup, /login)
 
 | # | Task | Effort | Depends On | Status |
 |---|------|--------|-----------|--------|
-| 3.1 | API reference (all endpoints, request/response examples) | 1 day | Block 1 done | |
-| 3.2 | Getting started guide (signup → first API call in 5 min) | 2 hours | 3.1 | |
-| 3.3 | Authentication guide (API keys, scopes, test keys) | 1 hour | 3.1 | |
-| 3.4 | Code examples (Python, JavaScript, curl) | 2 hours | 3.1 | |
-| 3.5 | Deploy docs site (docs.fastdol.com or in-app) | 1 hour | 3.1-3.4 | |
+| 2.6 | Signup page (email, password, company name → POST /auth/signup) | Half day | 2.1 | |
+| 2.7 | Login page (email, password → POST /auth/login) | 2 hours | 2.6 | |
+| 2.8 | Email verification landing page (/verify?token=) | 1 hour | 2.6 | |
+| 2.9 | Forgot password + reset password pages | 2 hours | 2.6 | |
 
----
-
-## Block 4: HIL Review UI (Days 9-11)
-
-*Improves entity resolution over time.*
+### 2C: Developer Dashboard (app.fastdol.com or fastdol.com/dashboard)
 
 | # | Task | Effort | Depends On | Status |
 |---|------|--------|-----------|--------|
-| 4.1 | Review UI page — two records side by side, Match/Non-Match/Skip buttons | 1 day | 2.1 | |
+| 2.10 | Dashboard home — API key display, usage meter, current plan | 1 day | 2.7 | |
+| 2.11 | API keys page — create, rotate, revoke, copy key | Half day | 2.10 | |
+| 2.12 | Billing page — current plan, Stripe customer portal link for upgrade/cancel | Half day | 2.10 | |
+
+### 2D: Docs Site (docs.fastdol.com or fastdol.com/docs)
+
+| # | Task | Effort | Depends On | Status |
+|---|------|--------|-----------|--------|
+| 2.13 | API reference — all endpoints, request/response examples | 1 day | Block 1 done | |
+| 2.14 | Getting started guide — signup → first API call in 5 min | 2 hours | 2.13 | |
+| 2.15 | Authentication guide — API keys, scopes, test keys | 1 hour | 2.13 | |
+| 2.16 | Code examples — Python, JavaScript, curl | 2 hours | 2.13 | |
+| 2.17 | Deploy docs (Mintlify, Docusaurus, or built into Next.js) | 1 hour | 2.13-2.16 | |
+
+---
+
+## Block 3: Entity Resolution Improvement (Days 8-9)
+
+*Improve matching for national employers.*
+
+| # | Task | Effort | Depends On | Status |
+|---|------|--------|-----------|--------|
+| 3.1 | WHD data integration — name-match WHD to OSHA, add wage violations to profiles | 1 day | WHD ingested | |
+| 3.2 | Parent company seed table — top 500 national employers and name variants | 1 day | 3.1 | |
+| 3.3 | SEC EDGAR EIN lookup — EIN for public companies (~8000) | Half day | — | |
+| 3.4 | Re-run full pipeline with improved entity resolution | 2 hours | 3.1-3.3 | |
+
+---
+
+## Block 4: HIL Review UI (Days 9-10)
+
+*Improves entity resolution over time. Page in the developer dashboard.*
+
+| # | Task | Effort | Depends On | Status |
+|---|------|--------|-----------|--------|
+| 4.1 | Review page in dashboard — two records side by side, Match/Non-Match/Skip | 1 day | 2.10 | |
 | 4.2 | Backend: GET /dashboard/review (next unreviewed pair) | 2 hours | — | |
 | 4.3 | Backend: POST /dashboard/review/{id} (submit decision) | 1 hour | 4.2 | |
 | 4.4 | Wire decisions back to pipeline (supervised Splink training when 200+ labels) | Half day | 4.1-4.3 | |

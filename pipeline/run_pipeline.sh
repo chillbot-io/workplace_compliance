@@ -68,7 +68,11 @@ echo "[Step 7/8] Syncing to Postgres..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/sync.py" 2>&1 | tee -a "$LOG_FILE"
 
 # Step 8: Validate sync
-echo "[Step 8/8] Validating sync..." | tee -a "$LOG_FILE"
+echo "[Step 8/9] Validating sync..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/validate_sync.py" 2>&1 | tee -a "$LOG_FILE"
+
+# Step 9: Data quality checks
+echo "[Step 9/9] Running data quality checks..." | tee -a "$LOG_FILE"
+python "${PROJECT_DIR}/pipeline/validate_data.py" 2>&1 | tee -a "$LOG_FILE"
 
 echo "=== Pipeline Run Complete — $(date -u) ===" | tee -a "$LOG_FILE"
