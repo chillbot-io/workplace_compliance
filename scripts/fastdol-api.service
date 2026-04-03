@@ -6,7 +6,7 @@ After=network.target postgresql.service pgbouncer.service
 Type=simple
 User=root
 WorkingDirectory=/opt/employer-compliance
-Environment=PG_DSN=postgresql://api:password1@127.0.0.1:6432/stablelabel
+EnvironmentFile=/opt/employer-compliance/.env.api
 ExecStart=/opt/employer-compliance/venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8001 --workers 4
 Restart=always
 RestartSec=5
