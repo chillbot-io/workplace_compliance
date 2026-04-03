@@ -83,7 +83,7 @@ trend_3yr AS (
     SELECT employer_id, SUM(violation_count) AS violations_3yr
     FROM osha_3yr
     GROUP BY employer_id
-)
+),
 
 -- Map employer names to parent companies via seed table
 -- Uses normalized name prefix matching against known parent→subsidiary patterns
