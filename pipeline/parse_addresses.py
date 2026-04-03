@@ -93,11 +93,17 @@ def main():
     """)
 
     # Parse WHD addresses
-    whd = con.execute("""
-        SELECT case_id, address, city, state, zip5
-        FROM whd_norm
-        WHERE address IS NOT NULL
-    """).df()
+    try:
+        whd = con.execute("""
+            SELECT case_id, address, city, state, zip5
+            FROM whd_norm
+            WHERE address IS NOT NULL
+        """).df()
+    except Exception:
+        print("WHD table not found — skipping WHD address parsing")
+        con.close()
+        print("Address parsing complete.")
+        return
 
     print(f"Parsing {len(whd)} WHD addresses...")
     whd["full_address"] = whd.apply(
