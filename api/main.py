@@ -13,6 +13,8 @@ from fastapi.responses import JSONResponse
 
 from api.auth import set_pool
 from api.routes.employers import router as employers_router
+from api.routes.auth import router as auth_router
+from api.routes.dashboard import router as dashboard_router
 
 structlog.configure(
     processors=[
@@ -45,6 +47,8 @@ app = FastAPI(title="Employer Compliance API", version="1.0", lifespan=lifespan)
 
 # Register routes
 app.include_router(employers_router)
+app.include_router(auth_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/v1/health")
