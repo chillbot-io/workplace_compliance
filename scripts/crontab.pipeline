@@ -3,25 +3,41 @@
 #
 # All jobs wrapped with cron_alert.sh for Slack alerting on failure.
 # ALERT_WEBHOOK_URL must be set in .env.pipeline
+#
+# Schedule overview:
+#   Nightly  (2 AM)     — OSHA ingestion + full transform + sync to Postgres
+#   Weekly   (Sun 1 AM) — WHD enforcement data refresh
+#   Monthly  (1st)      — SEC subsidiaries + EIN reference data refresh
+#   See PIPELINE_ARCHITECTURE.md for full diagram.
 
 SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
 ALERT_WEBHOOK_URL=
 
-# Pipeline: 2 AM daily (with flock to prevent overlap)
+# ── Data Pipeline ──────────────────────────────────────────────
+
+# Nightly: OSHA ingestion + dbt + entity resolution + sync (2 AM)
 0 2 * * *     source /opt/employer-compliance/.env.pipeline && flock -n /var/lock/pipeline.lock /opt/employer-compliance/scripts/cron_alert.sh "pipeline" bash /opt/employer-compliance/pipeline/run_pipeline.sh
 
-# Health check: after pipeline + safety net at 8:30 AM
+# Weekly: WHD enforcement data (Sunday 1 AM, before nightly run)
+0 1 * * 0     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "pipeline-weekly" bash /opt/employer-compliance/pipeline/run_weekly.sh
+
+# Monthly: SEC subsidiary + EIN reference data (1st of month, midnight)
+0 0 1 * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "pipeline-monthly" bash /opt/employer-compliance/pipeline/run_monthly.sh
+
+# ── Operations ─────────────────────────────────────────────────
+
+# Backup: 4 AM daily (pg_dump + DuckDB checkpoint)
+0 4 * * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "backup" bash /opt/employer-compliance/scripts/backup.sh
+
+# Health check: 8:30 AM daily
 30 8 * * *    source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "health-check" bash /opt/employer-compliance/scripts/check_health.sh
 
-# Key rotation: hourly
+# Key rotation: hourly (expire rotating_out keys past 48h)
 0 * * * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "rotate-keys" /opt/employer-compliance/venv/bin/python /opt/employer-compliance/scripts/rotate_keys.py
-
-# Backup: 4 AM daily
-0 4 * * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "backup" bash /opt/employer-compliance/scripts/backup.sh
 
 # Disk monitoring: every 6 hours
 0 */6 * * *   source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "disk-check" bash /opt/employer-compliance/scripts/check_disk.sh
 
 # Monthly usage reset: 1st of month at midnight
-0 0 1 * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "reset-usage" /opt/employer-compliance/venv/bin/python /opt/employer-compliance/scripts/reset_monthly_usage.py
+5 0 1 * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "reset-usage" /opt/employer-compliance/venv/bin/python /opt/employer-compliance/scripts/reset_monthly_usage.py

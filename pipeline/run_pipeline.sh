@@ -1,5 +1,9 @@
 #!/bin/bash
-# pipeline/run_pipeline.sh — Full pipeline orchestration
+# pipeline/run_pipeline.sh — Nightly pipeline orchestration
+# Ingests OSHA data, transforms, resolves entities, syncs to Postgres.
+# WHD ingestion is handled by run_weekly.sh (Sundays).
+# SEC reference data is handled by run_monthly.sh (1st of month).
+#
 # Usage: bash pipeline/run_pipeline.sh
 # Runs nightly via cron with flock to prevent overlapping runs.
 
@@ -34,9 +38,9 @@ export PIPELINE_RUN_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
 
 echo "=== Pipeline Run Starting — $(date -u) — Run ID: ${PIPELINE_RUN_ID} ===" | tee -a "$LOG_FILE"
 
-# Step 1: Ingest from DOL API
-echo "[Step 1/8] Ingesting from DOL API..." | tee -a "$LOG_FILE"
-python "${PROJECT_DIR}/pipeline/ingest_dol.py" 2>&1 | tee -a "$LOG_FILE"
+# Step 1: Ingest OSHA data only (WHD is weekly, SEC is monthly)
+echo "[Step 1/9] Ingesting OSHA data from DOL API..." | tee -a "$LOG_FILE"
+python "${PROJECT_DIR}/pipeline/ingest_dol.py" osha_inspections osha_violations 2>&1 | tee -a "$LOG_FILE"
 
 # Step 2: Load bronze into DuckDB
 echo "[Step 2/8] Loading bronze into DuckDB..." | tee -a "$LOG_FILE"
