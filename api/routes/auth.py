@@ -15,6 +15,7 @@ import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, HTTPException, Response, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 
 from api.auth import get_pool
@@ -123,7 +124,7 @@ async def signup(body: SignupRequest):
         # Create customer
         customer_id = await con.fetchval("""
             INSERT INTO customers (email, password_hash, company_name, plan, monthly_limit)
-            VALUES ($1, $2, $3, 'free', 5)
+            VALUES ($1, $2, $3, 'free', 50)
             RETURNING id
         """, body.email, password_hash, body.company_name)
 
@@ -195,7 +196,7 @@ async def verify_email(token: str, response: Response):
 
         await con.execute("""
             INSERT INTO api_keys (customer_id, key_hash, key_prefix, label, scopes, monthly_limit, status)
-            VALUES ($1, $2, $3, 'default', '{employer:read}', 5, 'active')
+            VALUES ($1, $2, $3, 'default', '{employer:read}', 50, 'active')
         """, row["customer_id"], key_hash, key_prefix)
 
         # Log audit event
@@ -302,13 +303,16 @@ async def forgot_password(body: ForgotPasswordRequest):
             except Exception as e:
                 print(f"WARNING: Failed to send reset email: {e}")
 
-            return {
-                "status": "sent",
-                "message": "If an account exists with this email, a reset link has been sent.",
-            }
+            return JSONResponse(
+                status_code=202,
+                content={"status": "sent", "message": "If an account exists with this email, a reset link has been sent."},
+            )
 
     # Always return 202 regardless — don't reveal whether email exists
-    return {"status": "sent", "message": "If an account exists with this email, a reset link has been sent."}
+    return JSONResponse(
+        status_code=202,
+        content={"status": "sent", "message": "If an account exists with this email, a reset link has been sent."},
+    )
 
 
 ## --- Reset Password ---

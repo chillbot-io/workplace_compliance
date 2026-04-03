@@ -189,7 +189,7 @@ async def get_inspections(
 
     return JSONResponse(
         content={
-            "data": [dict(r) for r in rows],
+            "data": [json.loads(json.dumps(dict(r), cls=CustomEncoder)) for r in rows],
             "pagination": {
                 "total": total,
                 "limit": limit,

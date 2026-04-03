@@ -100,7 +100,7 @@ async def stripe_webhook(request: Request):
         event = stripe.Webhook.construct_event(payload, sig_header, WEBHOOK_SECRET)
     except ValueError:
         raise HTTPException(400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError:
+    except stripe.SignatureVerificationError:
         raise HTTPException(400, detail="Invalid signature")
 
     # Atomic idempotency check (finding #17 + TOCTOU fix)
