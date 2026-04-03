@@ -95,24 +95,19 @@ def run_deduplication():
             cl.ExactMatch("naics_4digit"),
             cl.ExactMatch("site_state"),
         ],
+        # Set prior probability — with 2.5M records, chance of random match is low
+        probability_two_random_records_match=1e-5,
     )
 
     db_api = DuckDBAPI(connection=con)
     linker = Linker(con.table("er_input"), settings, db_api=db_api)
 
-    # Train the model (unsupervised — no labeled data needed)
-    print("Training Splink model (unsupervised EM)...")
-    linker.training.estimate_u_using_random_sampling(max_pairs=1_000_000)
-
-    print("EM training pass 1: blocking on naics_4digit...")
-    linker.training.estimate_parameters_using_expectation_maximisation(
-        block_on("naics_4digit")
-    )
-
-    print("EM training pass 2: blocking on site_state...")
-    linker.training.estimate_parameters_using_expectation_maximisation(
-        block_on("site_state")
-    )
+    # Train u probabilities only (probability of match by chance)
+    # Skip EM training — Splink v4.0.6 has a bug with _exact_match_colnames
+    # that prevents EM from running. u-values from random sampling are sufficient
+    # for a first pass. We can fine-tune with labeled data later.
+    print("Estimating u probabilities via random sampling...")
+    linker.training.estimate_u_using_random_sampling(max_pairs=10_000_000)
 
     # Predict matches and cluster
     print("Predicting matches (threshold=0.80)...")
