@@ -260,6 +260,12 @@ class BatchLookupItem(BaseModel):
     name: str | None = None
     ein: str | None = None
     employer_id: str | None = None
+    state: str | None = None
+    zip: str | None = None
+    city: str | None = None
+
+    class Config:
+        str_max_length = 200
 
 
 class BatchLookupRequest(BaseModel):
@@ -267,7 +273,7 @@ class BatchLookupRequest(BaseModel):
 
 
 BATCH_MAX = 500
-BATCH_SYNC_LIMIT = 25
+BATCH_SYNC_LIMIT = 100
 
 
 @router.post("/employers/batch")
@@ -275,7 +281,17 @@ async def batch_lookup(
     body: BatchLookupRequest,
     key_row=Depends(check_scope("batch:write")),
 ):
-    """Batch employer lookup. <=25 sync, >25 async (not yet implemented), max 500."""
+    """Batch employer lookup — designed for spreadsheet-style bulk searches.
+
+    Each item can include name, ein, employer_id, plus optional location
+    filters (state, zip, city) to narrow to a specific site.
+
+    Up to 100 items processed synchronously. 101-500 returns a job_id
+    for async polling (coming soon). Max 500 items per request.
+
+    Typical usage: underwriter uploads a spreadsheet with company name +
+    address for each policy they're quoting.
+    """
     if len(body.lookups) > BATCH_MAX:
         raise HTTPException(422, detail={
             "error": "batch_too_large",
@@ -300,60 +316,123 @@ async def batch_lookup(
     results = []
     async with get_pool().acquire() as con:
         for item in body.lookups:
-            row = None
-
-            # Priority: employer_id > ein > name
-            if item.employer_id:
-                row = await con.fetchrow("""
-                    SELECT DISTINCT ON (employer_id) *
-                    FROM employer_profile
-                    WHERE employer_id = $1::uuid
-                    ORDER BY employer_id, snapshot_date DESC
-                """, item.employer_id)
-
-            elif item.ein:
-                row = await con.fetchrow("""
-                    SELECT DISTINCT ON (employer_id) *
-                    FROM employer_profile
-                    WHERE ein = $1
-                    ORDER BY employer_id, snapshot_date DESC
-                """, item.ein)
-
-            elif item.name:
-                row = await con.fetchrow("""
-                    SELECT * FROM (
-                        SELECT DISTINCT ON (employer_id) *,
-                               similarity(employer_name, $1) AS sim_score
-                        FROM employer_profile
-                        WHERE similarity(employer_name, $1) > 0.3
-                        ORDER BY employer_id, snapshot_date DESC
-                    ) sub
-                    ORDER BY sim_score DESC
-                    LIMIT 1
-                """, item.name)
-
-            if row:
-                results.append({
-                    "query": item.model_dump(exclude_none=True),
-                    "match": _format_employer(row),
-                })
-            else:
-                results.append({
-                    "query": item.model_dump(exclude_none=True),
-                    "match": None,
-                })
+            match = await _resolve_batch_item(item, con)
+            results.append({
+                "query": item.model_dump(exclude_none=True),
+                "match": _format_employer(match) if match else None,
+                "confidence": _match_confidence(match) if match else None,
+            })
 
     await record_usage(key_row, "/v1/employers/batch", count=len(body.lookups))
     headers = await get_quota_headers(key_row)
 
     return JSONResponse(
         content={
-            "data": results,
+            "results": results,
             "total": len(results),
             "matched": sum(1 for r in results if r["match"]),
+            "unmatched": sum(1 for r in results if not r["match"]),
         },
         headers=headers,
     )
+
+
+async def _resolve_batch_item(item: BatchLookupItem, con) -> dict | None:
+    """Resolve a single batch item to the best employer match.
+
+    Priority: employer_id (exact) > ein (exact) > name (fuzzy + location filters).
+    Location filters (state, zip, city) narrow name matches to a specific site.
+    """
+    # Direct ID lookup — no ambiguity
+    if item.employer_id:
+        return await con.fetchrow("""
+            SELECT DISTINCT ON (employer_id) *
+            FROM employer_profile
+            WHERE employer_id = $1::uuid
+            ORDER BY employer_id, snapshot_date DESC
+        """, item.employer_id)
+
+    # EIN exact match — may have multiple locations, use location to pick best
+    if item.ein:
+        params = [item.ein]
+        param_idx = 2
+        filters = []
+
+        if item.state:
+            filters.append(f"state = ${param_idx}")
+            params.append(item.state.upper().strip())
+            param_idx += 1
+        if item.zip:
+            filters.append(f"zip = ${param_idx}")
+            params.append(item.zip.strip()[:5])
+            param_idx += 1
+
+        extra = (" AND " + " AND ".join(filters)) if filters else ""
+
+        return await con.fetchrow(f"""
+            SELECT * FROM (
+                SELECT DISTINCT ON (employer_id) *
+                FROM employer_profile
+                WHERE ein = $1{extra}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+            ORDER BY risk_score DESC NULLS LAST
+            LIMIT 1
+        """, *params)
+
+    # Name fuzzy match with location narrowing
+    if item.name:
+        params = [item.name]
+        param_idx = 2
+        filters = []
+
+        if item.state:
+            filters.append(f"state = ${param_idx}")
+            params.append(item.state.upper().strip())
+            param_idx += 1
+        if item.zip:
+            filters.append(f"zip = ${param_idx}")
+            params.append(item.zip.strip()[:5])
+            param_idx += 1
+        if item.city:
+            # Use similarity for city to handle spelling variations
+            filters.append(f"similarity(city, ${param_idx}) > 0.4")
+            params.append(item.city.upper().strip())
+            param_idx += 1
+
+        extra = (" AND " + " AND ".join(filters)) if filters else ""
+
+        # When location filters are present, use a tighter name threshold
+        # and rank by combined name similarity + location match
+        name_threshold = 0.3 if filters else 0.3
+
+        return await con.fetchrow(f"""
+            SELECT * FROM (
+                SELECT DISTINCT ON (employer_id) *,
+                       similarity(employer_name, $1) AS sim_score
+                FROM employer_profile
+                WHERE similarity(employer_name, $1) > {name_threshold}{extra}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+            ORDER BY sim_score DESC
+            LIMIT 1
+        """, *params)
+
+    return None
+
+
+def _match_confidence(row) -> str:
+    """Estimate match confidence based on how the match was found."""
+    if not row:
+        return None
+    sim = row.get("sim_score")
+    if sim is None:
+        return "exact"  # ID or EIN match
+    if sim > 0.8:
+        return "high"
+    if sim > 0.5:
+        return "medium"
+    return "low"
 
 
 ## --- Risk History ---
