@@ -11,5 +11,12 @@ ExecStart=/opt/employer-compliance/venv/bin/uvicorn api.main:app --host 0.0.0.0 
 Restart=always
 RestartSec=5
 
+# Hardening
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/employer-compliance
+
 [Install]
 WantedBy=multi-user.target

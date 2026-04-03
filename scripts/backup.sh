@@ -11,7 +11,8 @@ echo "=== Backup starting at $(date -u) ==="
 
 # 1. Postgres dump
 echo "Dumping Postgres..."
-PGPASSWORD="${PG_PASSWORD:-password2}" pg_dump -h 10.0.0.2 -U pipeline_user -d stablelabel \
+PGPASSWORD="${PG_PASSWORD:?PG_PASSWORD not set}" PGSSLMODE=require \
+    pg_dump -h 10.0.0.2 -U pipeline_user -d stablelabel \
     --no-owner --no-acl \
     -F c -f "$BACKUP_DIR/stablelabel.dump" 2>/dev/null || echo "WARNING: pg_dump failed"
 
