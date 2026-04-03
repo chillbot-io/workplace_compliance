@@ -27,7 +27,7 @@
 
 ## Block 2: Website (Days 4-8)
 
-*Marketing site + developer dashboard. NOT a full SaaS app — the product is the API.*
+*Simple quasi-SaaS: search tool + bulk upload. NOT a full dashboard app.*
 
 ### 2A: Marketing Site (fastdol.com)
 
@@ -35,36 +35,37 @@
 |---|------|--------|-----------|--------|
 | 2.1 | Next.js project setup (repo, Tailwind, shadcn/ui) | 2 hours | — | |
 | 2.2 | Landing page — hero, value prop, how it works, data sources list | 1 day | 2.1 | |
-| 2.3 | Live demo widget — type employer name, see risk profile (no signup needed) | Half day | 2.2 | |
-| 2.4 | Pricing page — tiers table, FAQ, CTA to signup | Half day | 2.1 | |
-| 2.5 | Deploy to Vercel (fastdol.com) | 1 hour | 2.2-2.4 | |
+| 2.3 | Pricing page — tiers table, FAQ, CTA to signup | Half day | 2.1 | |
+| 2.4 | Deploy to Vercel (fastdol.com) | 1 hour | 2.2-2.3 | |
 
 ### 2B: Auth Pages (fastdol.com/signup, /login)
 
 | # | Task | Effort | Depends On | Status |
 |---|------|--------|-----------|--------|
-| 2.6 | Signup page (email, password, company name → POST /auth/signup) | Half day | 2.1 | |
-| 2.7 | Login page (email, password → POST /auth/login) | 2 hours | 2.6 | |
-| 2.8 | Email verification landing page (/verify?token=) | 1 hour | 2.6 | |
-| 2.9 | Forgot password + reset password pages | 2 hours | 2.6 | |
+| 2.5 | Signup page (email, password, company name → POST /auth/signup) | Half day | 2.1 | |
+| 2.6 | Login page (email, password → POST /auth/login) | 2 hours | 2.5 | |
+| 2.7 | Email verification landing page (/verify?token=) | 1 hour | 2.5 | |
+| 2.8 | Forgot password + reset password pages | 2 hours | 2.5 | |
 
-### 2C: Developer Dashboard (app.fastdol.com or fastdol.com/dashboard)
+### 2C: Core Tools (the product — what users pay for)
 
 | # | Task | Effort | Depends On | Status |
 |---|------|--------|-----------|--------|
-| 2.10 | Dashboard home — API key display, usage meter, current plan | 1 day | 2.7 | |
-| 2.11 | API keys page — create, rotate, revoke, copy key | Half day | 2.10 | |
-| 2.12 | Billing page — current plan, Stripe customer portal link for upgrade/cancel | Half day | 2.10 | |
+| 2.9 | Employer search page — name + optional zip/state, results list with risk profiles | 1 day | 2.6 | |
+| 2.10 | Employer detail page — full risk profile, inspection history, trend | Half day | 2.9 | |
+| 2.11 | CSV bulk upload page — drag & drop CSV, map columns, get results CSV back | 1 day | 2.6 | |
+| 2.12 | Billing page — pick plan, Stripe checkout, manage subscription | Half day | 2.6 | |
+| 2.13 | API key display — show key once after signup/verification, copy button | 2 hours | 2.6 | |
 
 ### 2D: Docs Site (docs.fastdol.com or fastdol.com/docs)
 
 | # | Task | Effort | Depends On | Status |
 |---|------|--------|-----------|--------|
-| 2.13 | API reference — all endpoints, request/response examples | 1 day | Block 1 done | |
-| 2.14 | Getting started guide — signup → first API call in 5 min | 2 hours | 2.13 | |
-| 2.15 | Authentication guide — API keys, scopes, test keys | 1 hour | 2.13 | |
-| 2.16 | Code examples — Python, JavaScript, curl | 2 hours | 2.13 | |
-| 2.17 | Deploy docs (Mintlify, Docusaurus, or built into Next.js) | 1 hour | 2.13-2.16 | |
+| 2.14 | API reference — all endpoints, request/response examples | 1 day | Block 1 done | |
+| 2.15 | Getting started guide — signup → first API call in 5 min | 2 hours | 2.14 | |
+| 2.16 | Authentication guide — API keys, scopes, test keys | 1 hour | 2.14 | |
+| 2.17 | Code examples — Python, JavaScript, curl | 2 hours | 2.14 | |
+| 2.18 | Deploy docs (Mintlify, Docusaurus, or built into Next.js) | 1 hour | 2.14-2.17 | |
 
 ---
 
