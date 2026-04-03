@@ -127,11 +127,12 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
 
     print(f"[{name}] Fetching from offset {offset}...")
 
-    consecutive_429s = 0
+    consecutive_failures = 0
 
     while not done:
         burst_start = time.time()
         burst_count = 0
+        hit_limit_this_burst = False
 
         # Fire a burst of requests
         for _ in range(BURST_SIZE):
@@ -146,28 +147,18 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             records, hit_limit = fetch_one_page(url, params, name)
 
             if hit_limit:
-                # Rate limited — stop burst, wait LONGER than normal cooldown
-                consecutive_429s += 1
-                if consecutive_429s >= MAX_RETRIES:
-                    print(f"[{name}] Too many consecutive 429s, stopping")
-                    done = True
-                else:
-                    print(f"[{name}] Rate limited, waiting {RATE_LIMIT_WAIT}s (attempt {consecutive_429s}/{MAX_RETRIES})...")
-                    time.sleep(RATE_LIMIT_WAIT)
+                hit_limit_this_burst = True
                 break
 
-            consecutive_429s = 0  # reset on success
-
             if records is None:
-                # Network error — save what we have
                 done = True
                 break
 
             if not records:
-                # No more data
                 done = True
                 break
 
+            consecutive_failures = 0  # reset on any success
             all_records.extend(records)
             total_fetched += len(records)
             offset += PAGE_SIZE
@@ -177,7 +168,6 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
                 done = True
                 break
 
-            # Small delay within burst
             time.sleep(0.3)
 
         # Progress update
@@ -191,10 +181,20 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             save_checkpoint(df[available] if available else df, name)
             last_checkpoint = total_fetched
 
-        # Cooldown — ONLY after a successful burst, NOT after a rate limit hit
-        # (rate limit already waited RATE_LIMIT_WAIT inside the burst loop)
-        if not done and burst_count > 0:
-            print(f"[{name}] Cooldown {BURST_COOLDOWN}s (no requests)...")
+        # Handle rate limit vs normal cooldown
+        if done:
+            break
+        elif hit_limit_this_burst:
+            consecutive_failures += 1
+            if consecutive_failures >= MAX_RETRIES:
+                print(f"[{name}] Too many consecutive failures ({consecutive_failures}), stopping")
+                done = True
+            else:
+                wait = RATE_LIMIT_WAIT + (consecutive_failures * 30)  # escalating wait
+                print(f"[{name}] Rate limited, waiting {wait}s (attempt {consecutive_failures}/{MAX_RETRIES})...")
+                time.sleep(wait)
+        else:
+            print(f"[{name}] Cooldown {BURST_COOLDOWN}s...")
             time.sleep(BURST_COOLDOWN)
 
     print(f"[{name}] Complete: {total_fetched} total records")
