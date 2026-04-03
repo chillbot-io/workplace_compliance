@@ -51,6 +51,7 @@ def sync():
         "osha_serious_willful", "osha_total_penalties",
         "osha_open_date_latest", "osha_avg_gravity",
         "risk_tier", "risk_score", "confidence_tier", "trend_signal",
+        "location_count",
     ]
 
     # Build the dataframe with Postgres column names
@@ -82,6 +83,7 @@ def sync():
     # Cast integer columns — DuckDB SUM() produces floats
     int_cols = [
         "osha_inspections_5yr", "osha_violations_5yr", "osha_serious_willful",
+        "location_count",
     ]
     for col in int_cols:
         if col in pg_df.columns:

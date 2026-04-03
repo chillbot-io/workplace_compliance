@@ -90,11 +90,10 @@ async def search_employers(
             """, *params, limit, offset)
 
             if rows:
-                loc_counts = await _add_location_counts(rows, con)
                 await record_usage(key_row, "/v1/employers")
                 headers = await get_quota_headers(key_row)
                 return JSONResponse(
-                    content=_format_results(rows, count, limit, offset, loc_counts),
+                    content=_format_results(rows, count, limit, offset),
                     headers=headers,
                 )
 
@@ -148,11 +147,10 @@ async def search_employers(
                     "message": f'No employers found matching "{name}".',
                 })
 
-            loc_counts = await _add_location_counts(rows, con)
             await record_usage(key_row, "/v1/employers")
             headers = await get_quota_headers(key_row)
             return JSONResponse(
-                content=_format_results(rows, count, limit, offset, loc_counts),
+                content=_format_results(rows, count, limit, offset),
                 headers=headers,
             )
 
@@ -593,43 +591,11 @@ async def list_naics_codes(
 
 ## --- Helpers ---
 
-async def _add_location_counts(rows, con) -> dict[str, int]:
-    """Get related_locations_count for each employer name in the result set.
-    Counts how many distinct employer_ids share a similar normalized name."""
-    if not rows:
-        return {}
-
-    # Collect unique employer names from results
-    names = list({r["employer_name"] for r in rows if r.get("employer_name")})
-    if not names:
-        return {}
-
-    # Batch count: for each name, count employers with similarity > 0.6
-    # (tighter than search threshold — these are "same company" matches)
-    counts = {}
-    for name in names:
-        count = await con.fetchval("""
-            SELECT COUNT(DISTINCT employer_id)
-            FROM employer_profile
-            WHERE similarity(employer_name, $1) > 0.6
-              AND snapshot_date = (SELECT MAX(snapshot_date) FROM employer_profile)
-        """, name)
-        counts[name] = count or 0
-
-    return counts
-
-
-def _format_results(rows, total_count: int, limit: int, offset: int, loc_counts: dict | None = None) -> dict:
-    """Format search results as a flat paginated list."""
-    results = []
-    for r in rows:
-        emp = _format_employer(r)
-        if loc_counts:
-            emp["related_locations_count"] = loc_counts.get(r["employer_name"], 0)
-        results.append(emp)
-
+def _format_results(rows, total_count: int, limit: int, offset: int) -> dict:
+    """Format search results as a flat paginated list.
+    location_count is pre-computed in the pipeline (gold model)."""
     return {
-        "results": results,
+        "results": [_format_employer(r) for r in rows],
         "total_count": total_count,
         "limit": limit,
         "offset": offset,

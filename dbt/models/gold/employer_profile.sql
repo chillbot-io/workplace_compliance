@@ -52,6 +52,7 @@ employer_osha AS (
         -- Use most common values for identity fields
         -- DuckDB: use ARG_MIN to get column value from the row with most recent inspection
         ARG_MIN(estab_name, -EXTRACT(EPOCH FROM open_date)) AS employer_name,
+        ARG_MIN(name_normalized, -EXTRACT(EPOCH FROM open_date)) AS name_normalized,
         ARG_MIN(site_address, -EXTRACT(EPOCH FROM open_date)) AS address,
         ARG_MIN(site_city, -EXTRACT(EPOCH FROM open_date)) AS city,
         ARG_MIN(site_state, -EXTRACT(EPOCH FROM open_date)) AS state,
@@ -84,8 +85,20 @@ trend_3yr AS (
     GROUP BY employer_id
 )
 
+-- Count how many employer_ids share the same normalized name
+-- (e.g., all "WALMART" locations across the country)
+location_counts AS (
+    SELECT name_normalized, COUNT(*) AS location_count
+    FROM employer_osha
+    WHERE name_normalized IS NOT NULL
+    GROUP BY name_normalized
+)
+
 SELECT
     e.*,
+
+    -- Related locations sharing same normalized name
+    COALESCE(lc.location_count, 1) AS location_count,
 
     -- Risk tier
     CASE
@@ -146,3 +159,4 @@ FROM employer_osha e
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
 LEFT JOIN naics_2022 n ON e.naics_code = n.naics_code
+LEFT JOIN location_counts lc ON e.name_normalized = lc.name_normalized
