@@ -133,6 +133,68 @@ def run_deduplication():
 
     con.execute("CREATE OR REPLACE TABLE employer_clusters AS SELECT * FROM clusters_df")
 
+    # --- Post-Splink name merge ---
+    # Splink clusters by zip/state, so "AMAZON" in Kansas and "AMAZON" in California
+    # stay in separate clusters. This second pass merges clusters that share the same
+    # name_normalized, assigning them all to the largest cluster (most records).
+    print("Post-Splink name merge — grouping clusters by normalized name...")
+    pre_merge = con.execute("SELECT COUNT(DISTINCT cluster_id) FROM employer_clusters").fetchone()[0]
+
+    con.execute("""
+        CREATE OR REPLACE TABLE name_cluster_map AS
+        WITH cluster_names AS (
+            -- Get the dominant name_normalized for each cluster
+            SELECT
+                ec.cluster_id,
+                ei.name_normalized,
+                COUNT(*) as member_count
+            FROM employer_clusters ec
+            JOIN er_input ei ON CAST(ec.unique_id AS VARCHAR) = CAST(ei.unique_id AS VARCHAR)
+            GROUP BY ec.cluster_id, ei.name_normalized
+        ),
+        ranked AS (
+            -- For each cluster, pick the most common name
+            SELECT cluster_id, name_normalized, member_count,
+                   ROW_NUMBER() OVER (PARTITION BY cluster_id ORDER BY member_count DESC) as rn
+            FROM cluster_names
+        ),
+        cluster_primary_name AS (
+            SELECT cluster_id, name_normalized FROM ranked WHERE rn = 1
+        ),
+        -- For each name_normalized, find the largest cluster (this becomes the "winner")
+        name_winners AS (
+            SELECT
+                cpn.name_normalized,
+                cpn.cluster_id,
+                SUM(cn.member_count) as total_members,
+                ROW_NUMBER() OVER (PARTITION BY cpn.name_normalized ORDER BY SUM(cn.member_count) DESC) as rn
+            FROM cluster_primary_name cpn
+            JOIN cluster_names cn ON cpn.cluster_id = cn.cluster_id
+            GROUP BY cpn.name_normalized, cpn.cluster_id
+        )
+        -- Map every cluster to the winning cluster for its name
+        SELECT
+            cpn.cluster_id AS old_cluster_id,
+            nw.cluster_id AS new_cluster_id
+        FROM cluster_primary_name cpn
+        JOIN name_winners nw ON cpn.name_normalized = nw.name_normalized AND nw.rn = 1
+        WHERE cpn.cluster_id != nw.cluster_id
+    """)
+
+    merged_count = con.execute("SELECT COUNT(*) FROM name_cluster_map").fetchone()[0]
+
+    if merged_count > 0:
+        # Update employer_clusters to point to the winning cluster
+        con.execute("""
+            UPDATE employer_clusters
+            SET cluster_id = ncm.new_cluster_id
+            FROM name_cluster_map ncm
+            WHERE CAST(employer_clusters.cluster_id AS VARCHAR) = CAST(ncm.old_cluster_id AS VARCHAR)
+        """)
+
+    post_merge = con.execute("SELECT COUNT(DISTINCT cluster_id) FROM employer_clusters").fetchone()[0]
+    print(f"Name merge: {pre_merge} clusters → {post_merge} clusters ({pre_merge - post_merge} merged)")
+
     # Map clusters to stable employer_id UUIDs
     update_cluster_mapping(con)
 
