@@ -126,6 +126,15 @@ def sync():
             ORDER BY employer_id, snapshot_date DESC
         """)
 
+        # Step 5: Populate risk_snapshots for /risk-history endpoint
+        cur.execute("""
+            INSERT INTO risk_snapshots (employer_id, snapshot_date, risk_tier, risk_score, confidence_tier, trend_signal, pipeline_run_id)
+            SELECT employer_id::uuid, snapshot_date::date, risk_tier, risk_score, confidence_tier, trend_signal, pipeline_run_id::uuid
+            FROM employer_profile
+            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM employer_profile)
+            ON CONFLICT DO NOTHING
+        """)
+
         conn.commit()
         print(f"Shadow-table swap complete. {staging_count} profiles live.")
 

@@ -60,7 +60,7 @@ async def verify_key(x_api_key: str = Header(..., alias="X-Api-Key")):
     async with get_pool().acquire() as con:
         row = await con.fetchrow("""
             SELECT key_id, customer_id, scopes, monthly_limit, status,
-                   expires_at, last_used_at
+                   expires_at, rotation_expires_at, last_used_at
             FROM api_keys
             WHERE key_hash = $1
         """, key_hash)
@@ -77,6 +77,14 @@ async def verify_key(x_api_key: str = Header(..., alias="X-Api-Key")):
             "error": "key_revoked",
             "message": "This API key has been revoked.",
         })
+
+    # Check rotating_out keys — still valid within 48h window
+    if row["status"] == "rotating_out" and row["rotation_expires_at"]:
+        if row["rotation_expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            raise HTTPException(401, detail={
+                "error": "key_rotation_expired",
+                "message": "This API key's rotation window has expired. Use your new key.",
+            })
 
     # Check expiration
     if row["expires_at"] and row["expires_at"] < datetime.now(timezone.utc):
@@ -173,7 +181,23 @@ async def get_quota_headers(key_row: dict) -> dict:
         """, key_row["key_hash"])
 
     remaining = max(0, limit - used)
+
+    # Data freshness headers
+    freshness_headers = {}
+    try:
+        row = await con.fetchrow("""
+            SELECT finished_at FROM pipeline_runs
+            ORDER BY started_at DESC LIMIT 1
+        """)
+        if row and row["finished_at"]:
+            freshness_headers["X-Data-Freshness"] = row["finished_at"].isoformat()
+            age = (datetime.now(timezone.utc) - row["finished_at"].replace(tzinfo=timezone.utc)).total_seconds() / 3600
+            freshness_headers["X-Data-Age-Hours"] = str(round(age, 1))
+    except Exception:
+        pass
+
     return {
         "X-Lookups-Remaining": str(remaining),
         "X-Lookups-Limit": str(limit),
+        **freshness_headers,
     }

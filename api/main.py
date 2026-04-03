@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 
 import asyncpg
 import structlog
+import sentry_sdk
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.auth import set_pool
@@ -26,6 +28,15 @@ structlog.configure(
 )
 log = structlog.get_logger()
 
+# Sentry error tracking
+sentry_dsn = os.environ.get("SENTRY_DSN")
+if sentry_dsn:
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        environment=os.environ.get("ENV", "development"),
+        traces_sample_rate=0.1,
+    )
+
 # Connection pool — initialized on startup
 pool: asyncpg.Pool | None = None
 
@@ -39,13 +50,22 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("Set PG_DSN or DATABASE_URL")
     pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
     set_pool(pool)  # share pool with auth module
-    log.info("database_pool_ready", dsn=dsn.split("@")[-1])
+    log.info("database_pool_ready")
     yield
     await pool.close()
     log.info("database_pool_closed")
 
 
-app = FastAPI(title="Employer Compliance API", version="1.0", lifespan=lifespan)
+app = FastAPI(title="FastDOL API", version="1.0", lifespan=lifespan)
+
+# CORS — allow API consumers from any origin (API key auth, not cookie-based)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["*"],
+    expose_headers=["X-Lookups-Remaining", "X-Lookups-Limit", "X-Data-Freshness", "X-Data-Age-Hours", "X-Billing-Note"],
+)
 
 # CSRF protection on dashboard routes
 app.add_middleware(CSRFMiddleware)
@@ -68,6 +88,7 @@ async def health():
     }
     status_code = 503
     message = None
+    extra = {}
 
     if not pool:
         return JSONResponse({"status": "unhealthy", "checks": checks, "api_version": "1.0"}, status_code=503)
@@ -81,10 +102,11 @@ async def health():
             # Check 2: data loaded
             count = await con.fetchval("SELECT COUNT(*) FROM employer_profile")
             checks["data_loaded"] = "ok" if count and count > 0 else "fail"
+            extra["employer_profiles_count"] = count or 0
 
             # Check 3 & 4: pipeline recency and status
             row = await con.fetchrow("""
-                SELECT status, finished_at
+                SELECT status, finished_at, started_at
                 FROM pipeline_runs
                 ORDER BY started_at DESC
                 LIMIT 1
@@ -93,15 +115,17 @@ async def health():
                 checks["pipeline_status"] = "ok" if row["status"] in (
                     "completed", "completed_with_warnings"
                 ) else "fail"
+                extra["last_pipeline_run"] = row["finished_at"].isoformat() if row["finished_at"] else None
+                extra["last_pipeline_status"] = row["status"]
 
                 if row["finished_at"]:
                     age_hours = (
                         datetime.now(timezone.utc) - row["finished_at"].replace(tzinfo=timezone.utc)
                     ).total_seconds() / 3600
                     checks["pipeline_recent"] = "ok" if age_hours <= 26 else "fail"
+                    extra["data_age_hours"] = round(age_hours, 1)
 
     except Exception as e:
-        log.error("health_check_error", error=str(e))
         log.error("health_check_db_error", error=str(e))
         message = "Database unavailable"
 
@@ -112,6 +136,8 @@ async def health():
     body = {
         "status": "healthy" if all_ok else "degraded",
         "checks": checks,
+        **extra,
+        "data_lag_note": "OSHA citations appear 3-8 months after inspection date",
         "api_version": "1.0",
     }
     if message:
