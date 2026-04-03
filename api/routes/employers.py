@@ -31,73 +31,116 @@ async def search_employers(
     key_row=Depends(check_scope("employer:read")),
     name: str | None = Query(None, description="Fuzzy employer name search"),
     ein: str | None = Query(None, description="Exact EIN match"),
-    address: str | None = Query(None, description="Free-text address"),
     state: str | None = Query(None, description="State code filter (e.g., CA)"),
-    naics: str | None = Query(None, description="4-digit NAICS filter"),
-    limit: int = Query(10, ge=1, le=50),
+    zip: str | None = Query(None, description="5-digit zip code filter"),
+    naics: str | None = Query(None, description="4-digit NAICS prefix filter"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
-    """Search employers by name, EIN, address, state, or NAICS."""
-    if not any([name, ein, address]):
+    """Search employers by name, EIN, zip, state, or NAICS.
+
+    Returns a flat list of employer locations sorted by risk score (worst first).
+    Each result includes `related_locations_count` showing how many locations
+    share the same normalized employer name — useful for national chains.
+    """
+    if not any([name, ein]):
         raise HTTPException(400, detail={
             "error": "missing_query",
-            "message": "Provide at least one of: name, ein, or address.",
+            "message": "Provide at least one of: name or ein.",
         })
 
     await check_monthly_quota(key_row)
 
     async with get_pool().acquire() as con:
-        # EIN exact match — highest priority
+        # EIN exact match — highest priority, skip fuzzy
         if ein:
-            rows = await con.fetch("""
-                SELECT DISTINCT ON (employer_id) *
-                FROM employer_profile
-                WHERE ein = $1
-                ORDER BY employer_id, snapshot_date DESC
-                LIMIT $2
-            """, ein, limit)
+            params = [ein]
+            param_idx = 2
+            where_clauses = ["ein = $1"]
+
+            if state:
+                where_clauses.append(f"state = ${param_idx}")
+                params.append(state.upper())
+                param_idx += 1
+            if zip:
+                where_clauses.append(f"zip = ${param_idx}")
+                params.append(zip.strip()[:5])
+                param_idx += 1
+
+            where_sql = " AND ".join(where_clauses)
+
+            count = await con.fetchval(f"""
+                SELECT COUNT(*) FROM (
+                    SELECT DISTINCT ON (employer_id) employer_id
+                    FROM employer_profile
+                    WHERE {where_sql}
+                    ORDER BY employer_id, snapshot_date DESC
+                ) sub
+            """, *params)
+
+            rows = await con.fetch(f"""
+                SELECT * FROM (
+                    SELECT DISTINCT ON (employer_id) *
+                    FROM employer_profile
+                    WHERE {where_sql}
+                    ORDER BY employer_id, snapshot_date DESC
+                ) sub
+                ORDER BY risk_score DESC NULLS LAST
+                LIMIT ${param_idx} OFFSET ${param_idx + 1}
+            """, *params, limit, offset)
 
             if rows:
+                loc_counts = await _add_location_counts(rows, con)
                 await record_usage(key_row, "/v1/employers")
                 headers = await get_quota_headers(key_row)
                 return JSONResponse(
-                    content=_format_search_response(rows),
+                    content=_format_results(rows, count, limit, offset, loc_counts),
                     headers=headers,
                 )
 
-        # Name fuzzy search with pg_trgm
+        # Name fuzzy search with pg_trgm + optional filters
         if name:
-            query = """
-                SELECT DISTINCT ON (employer_id) *,
-                       similarity(employer_name, $1) AS sim_score
-                FROM employer_profile
-                WHERE similarity(employer_name, $1) > 0.2
-            """
             params = [name]
             param_idx = 2
+            filter_clauses = []
 
             if state:
-                query += f" AND state = ${param_idx}"
+                filter_clauses.append(f"state = ${param_idx}")
                 params.append(state.upper())
                 param_idx += 1
-
+            if zip:
+                filter_clauses.append(f"zip = ${param_idx}")
+                params.append(zip.strip()[:5])
+                param_idx += 1
             if naics:
-                query += f" AND naics_code LIKE ${param_idx}"
+                filter_clauses.append(f"naics_code LIKE ${param_idx}")
                 params.append(f"{naics}%")
                 param_idx += 1
 
-            query += f"""
-                ORDER BY employer_id, snapshot_date DESC
-            """
+            extra_where = (" AND " + " AND ".join(filter_clauses)) if filter_clauses else ""
 
-            # Wrap to sort by similarity
-            query = f"""
-                SELECT * FROM ({query}) sub
-                ORDER BY sim_score DESC
-                LIMIT ${param_idx}
-            """
-            params.append(limit)
+            # Count total matches
+            count = await con.fetchval(f"""
+                SELECT COUNT(*) FROM (
+                    SELECT DISTINCT ON (employer_id) employer_id
+                    FROM employer_profile
+                    WHERE similarity(employer_name, $1) > 0.2{extra_where}
+                    ORDER BY employer_id, snapshot_date DESC
+                ) sub
+            """, *params)
 
-            rows = await con.fetch(query, *params)
+            # Fetch page of results sorted by risk_score desc
+            rows = await con.fetch(f"""
+                SELECT * FROM (
+                    SELECT DISTINCT ON (employer_id) *,
+                           similarity(employer_name, $1) AS sim_score
+                    FROM employer_profile
+                    WHERE similarity(employer_name, $1) > 0.2{extra_where}
+                    ORDER BY employer_id, snapshot_date DESC
+                ) sub
+                ORDER BY risk_score DESC NULLS LAST
+                LIMIT ${param_idx} OFFSET ${param_idx + 1}
+            """, *params, limit, offset)
 
             if not rows:
                 raise HTTPException(404, detail={
@@ -105,17 +148,17 @@ async def search_employers(
                     "message": f'No employers found matching "{name}".',
                 })
 
+            loc_counts = await _add_location_counts(rows, con)
             await record_usage(key_row, "/v1/employers")
             headers = await get_quota_headers(key_row)
             return JSONResponse(
-                content=_format_search_response(rows),
+                content=_format_results(rows, count, limit, offset, loc_counts),
                 headers=headers,
             )
 
-        # Address-only search (fallback to name-based if no name given)
         raise HTTPException(400, detail={
-            "error": "not_implemented",
-            "message": "Address-only search requires name parameter as well.",
+            "error": "missing_query",
+            "message": "Provide at least one of: name or ein.",
         })
 
 
@@ -471,13 +514,44 @@ async def list_naics_codes(
 
 ## --- Helpers ---
 
-def _format_search_response(rows) -> dict:
-    """Format search results with match + possible_matches."""
+async def _add_location_counts(rows, con) -> dict[str, int]:
+    """Get related_locations_count for each employer name in the result set.
+    Counts how many distinct employer_ids share a similar normalized name."""
     if not rows:
-        return {"match": None, "possible_matches": []}
+        return {}
 
-    employers = [_format_employer(r) for r in rows]
+    # Collect unique employer names from results
+    names = list({r["employer_name"] for r in rows if r.get("employer_name")})
+    if not names:
+        return {}
+
+    # Batch count: for each name, count employers with similarity > 0.6
+    # (tighter than search threshold — these are "same company" matches)
+    counts = {}
+    for name in names:
+        count = await con.fetchval("""
+            SELECT COUNT(DISTINCT employer_id)
+            FROM employer_profile
+            WHERE similarity(employer_name, $1) > 0.6
+              AND snapshot_date = (SELECT MAX(snapshot_date) FROM employer_profile)
+        """, name)
+        counts[name] = count or 0
+
+    return counts
+
+
+def _format_results(rows, total_count: int, limit: int, offset: int, loc_counts: dict | None = None) -> dict:
+    """Format search results as a flat paginated list."""
+    results = []
+    for r in rows:
+        emp = _format_employer(r)
+        if loc_counts:
+            emp["related_locations_count"] = loc_counts.get(r["employer_name"], 0)
+        results.append(emp)
+
     return {
-        "match": employers[0],
-        "possible_matches": employers[1:10],  # capped at 10
+        "results": results,
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
     }
