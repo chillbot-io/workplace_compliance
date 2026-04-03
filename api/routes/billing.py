@@ -47,7 +47,7 @@ async def create_checkout(request: Request):
     if price_id not in TIER_MAP:
         raise HTTPException(400, detail={
             "error": "invalid_price",
-            "message": f"Invalid price_id. Valid options: {list(TIER_MAP.keys())}",
+            "message": "Invalid price_id. Check the pricing page for valid options.",
         })
 
     async with get_pool().acquire() as con:
@@ -103,20 +103,14 @@ async def stripe_webhook(request: Request):
     except stripe.error.SignatureVerificationError:
         raise HTTPException(400, detail="Invalid signature")
 
-    # Idempotency check (finding #17)
+    # Atomic idempotency check (finding #17 + TOCTOU fix)
     async with get_pool().acquire() as con:
-        existing = await con.fetchval(
-            "SELECT event_id FROM stripe_webhook_events WHERE event_id = $1",
-            event["id"],
-        )
-        if existing:
-            return JSONResponse(content={"status": "duplicate"})
-
-        # Record event
-        await con.execute(
-            "INSERT INTO stripe_webhook_events (event_id, event_type) VALUES ($1, $2)",
+        result = await con.execute(
+            "INSERT INTO stripe_webhook_events (event_id, event_type) VALUES ($1, $2) ON CONFLICT (event_id) DO NOTHING",
             event["id"], event["type"],
         )
+        if result == "INSERT 0 0":
+            return JSONResponse(content={"status": "duplicate"})
 
     # Handle events
     if event["type"] == "checkout.session.completed":

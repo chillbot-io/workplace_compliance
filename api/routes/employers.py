@@ -365,9 +365,12 @@ async def get_risk_history(
 ## --- Feedback ---
 
 class FeedbackRequest(BaseModel):
-    type: str  # incorrect_match, missing_data, wrong_employer, other
+    type: str
     description: str | None = None
     contact_email: str | None = None
+
+    class Config:
+        str_max_length = 5000
 
 
 @router.post("/employers/{employer_id}/feedback")

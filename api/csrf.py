@@ -21,7 +21,7 @@ CSRF_COOKIE = "csrf_token"
 CSRF_HEADER = "X-CSRF-Token"
 CSRF_SECRET = os.environ.get("CSRF_SECRET", "").encode() or secrets.token_bytes(32)
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-PROTECTED_PREFIXES = ("/dashboard/",)
+PROTECTED_PREFIXES = ("/dashboard/", "/billing/")
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):

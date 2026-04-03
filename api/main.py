@@ -102,7 +102,8 @@ async def health():
 
     except Exception as e:
         log.error("health_check_error", error=str(e))
-        message = f"Database error: {type(e).__name__}"
+        log.error("health_check_db_error", error=str(e))
+        message = "Database unavailable"
 
     all_ok = all(v == "ok" for v in checks.values())
     if all_ok:

@@ -42,11 +42,18 @@ try:
     with open(JWT_PUBLIC_KEY_PATH, "r") as f:
         _public_key = f.read()
 except FileNotFoundError:
-    # Dev mode — fall back to HS256 with random secret
+    if os.environ.get("ENV") == "production":
+        raise RuntimeError(
+            f"JWT RSA keys not found at {JWT_PRIVATE_KEY_PATH} and {JWT_PUBLIC_KEY_PATH}. "
+            "Generate with: openssl genrsa -out jwt_private.pem 2048 && "
+            "openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem"
+        )
+    # Dev mode — fall back to HS256 with shared secret
     _private_key = secrets.token_hex(32)
     _public_key = _private_key
     _use_hs256 = True
-    print("WARNING: JWT RSA keys not found, using HS256 dev mode")
+    import structlog
+    structlog.get_logger().warning("jwt_rsa_keys_missing", mode="hs256_dev")
 
 
 def _jwt_encode(payload: dict) -> str:
@@ -70,6 +77,9 @@ class SignupRequest(BaseModel):
     password: str
     company_name: str
 
+    class Config:
+        str_max_length = 255
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -90,10 +100,10 @@ class ResetPasswordRequest(BaseModel):
 @router.post("/signup")
 async def signup(body: SignupRequest):
     """Create account with email + password. Sends verification email."""
-    if len(body.password) < 8:
+    if len(body.password) < 8 or len(body.password) > 128:
         raise HTTPException(400, detail={
-            "error": "weak_password",
-            "message": "Password must be at least 8 characters.",
+            "error": "invalid_password",
+            "message": "Password must be between 8 and 128 characters.",
         })
 
     password_hash = ph.hash(body.password)
@@ -104,10 +114,11 @@ async def signup(body: SignupRequest):
             "SELECT id FROM customers WHERE email = $1", body.email
         )
         if existing:
-            raise HTTPException(409, detail={
-                "error": "email_exists",
-                "message": "An account with this email already exists.",
-            })
+            # Don't reveal that email exists — return same response as success
+            return {
+                "status": "created",
+                "message": "Account created. Check your email to verify your account.",
+            }
 
         # Create customer
         customer_id = await con.fetchval("""

@@ -36,6 +36,9 @@ class CreateKeyRequest(BaseModel):
     label: str = "default"
     scopes: list[str] = ["employer:read"]
 
+    class Config:
+        str_max_length = 100
+
 
 ## --- List Keys ---
 
@@ -67,8 +70,15 @@ async def create_key(body: CreateKeyRequest, user=Depends(get_current_user)):
         if scope not in valid_scopes:
             raise HTTPException(400, detail={
                 "error": "invalid_scope",
-                "message": f"Invalid scope: {scope}. Valid: {', '.join(valid_scopes)}",
+                "message": f"Invalid scope: {scope}.",
             })
+
+    # Only admins can create keys with admin:all scope
+    if "admin:all" in body.scopes and user["role"] != "admin":
+        raise HTTPException(403, detail={
+            "error": "insufficient_role",
+            "message": "Only admin users can create keys with admin:all scope.",
+        })
 
     # Check key limit (max 5 per customer)
     async with get_pool().acquire() as con:

@@ -37,13 +37,19 @@ async def verify_key(x_api_key: str = Header(..., alias="X-Api-Key")):
             "message": "Provide an API key via the X-Api-Key header.",
         })
 
-    # Test keys bypass normal auth
+    # Test keys — only in non-production environments
     if x_api_key.startswith("emp_test_"):
+        env = os.environ.get("ENV", "development")
+        if env == "production":
+            raise HTTPException(401, detail={
+                "error": "test_key_disabled",
+                "message": "Test keys are not available in production.",
+            })
         return {
             "key_hash": hashlib.sha256(x_api_key.encode()).hexdigest(),
             "key_id": "test-key",
             "customer_id": None,
-            "scopes": ["employer:read", "batch:write", "subscriptions:manage"],
+            "scopes": ["employer:read"],
             "monthly_limit": 999999,
             "status": "active",
             "is_test": True,
