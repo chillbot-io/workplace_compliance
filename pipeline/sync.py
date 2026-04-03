@@ -95,14 +95,14 @@ def sync():
         cur.execute("DROP TABLE IF EXISTS employer_profile_staging")
         cur.execute("CREATE TABLE employer_profile_staging (LIKE employer_profile INCLUDING ALL)")
 
-        # Step 2: COPY data into staging via CSV stream
+        # Step 2: COPY data into staging via CSV stream (CSV handles quoting for embedded tabs/newlines)
         buffer = StringIO()
-        pg_df.to_csv(buffer, index=False, header=False, sep="\t", na_rep="\\N")
+        pg_df.to_csv(buffer, index=False, header=False, na_rep="")
         buffer.seek(0)
 
         columns_str = ", ".join(pg_columns)
         cur.copy_expert(
-            f"COPY employer_profile_staging ({columns_str}) FROM STDIN WITH (FORMAT text, NULL '\\N')",
+            f"COPY employer_profile_staging ({columns_str}) FROM STDIN WITH (FORMAT csv, NULL '')",
             buffer,
         )
 
