@@ -90,7 +90,6 @@ def run_deduplication():
             block_on("name_prefix", "naics_4digit"),  # multi-geography employers
         ],
         comparisons=[
-            cl.ExactMatch("address_key").configure(term_frequency_adjustments=True),
             cl.JaroWinklerAtThresholds("name_normalized", [0.92, 0.80]),
             cl.ExactMatch("naics_4digit"),
             cl.ExactMatch("site_state"),
@@ -102,12 +101,16 @@ def run_deduplication():
 
     # Train the model (unsupervised — no labeled data needed)
     print("Training Splink model (unsupervised EM)...")
-    linker.training.estimate_u_using_random_sampling(max_pairs=500_000)
+    linker.training.estimate_u_using_random_sampling(max_pairs=1_000_000)
+
+    print("EM training pass 1: blocking on naics_4digit...")
     linker.training.estimate_parameters_using_expectation_maximisation(
-        block_on("zip5"), fix_u_probabilities=False
+        block_on("naics_4digit"), fix_u_probabilities=False
     )
+
+    print("EM training pass 2: blocking on site_state...")
     linker.training.estimate_parameters_using_expectation_maximisation(
-        block_on("site_state", "name_prefix"), fix_u_probabilities=False
+        block_on("site_state"), fix_u_probabilities=False
     )
 
     # Predict matches and cluster
