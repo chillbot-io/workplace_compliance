@@ -20,11 +20,12 @@ PGPASSWORD="${PG_PASSWORD:?PG_PASSWORD not set}" PGSSLMODE=require \
 echo "Copying DuckDB..."
 cp "${DUCKDB_PATH:-/data/duckdb/employer_compliance.duckdb}" "$BACKUP_DIR/" 2>/dev/null || echo "WARNING: DuckDB copy failed"
 
-# 3. Config backup
+# 3. Config backup (exclude secrets — .env files contain credentials)
 echo "Backing up config..."
 tar -czf "$BACKUP_DIR/config.tar.gz" \
-    /opt/employer-compliance/.env.pipeline \
+    --exclude='*.env.*' --exclude='.env*' \
     /opt/employer-compliance/docker-compose.pipeline.yml \
+    /opt/employer-compliance/scripts/ \
     2>/dev/null || echo "WARNING: config backup failed"
 
 # 4. Cleanup old backups (keep 7 days)

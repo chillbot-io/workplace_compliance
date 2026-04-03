@@ -91,7 +91,10 @@ def load_existing(source_name: str) -> pd.DataFrame:
 
 def save_checkpoint(df: pd.DataFrame, source_name: str):
     path = get_parquet_path(source_name)
-    df.to_parquet(path, index=False)
+    # Atomic write — write to temp file then rename to prevent corruption on crash
+    tmp_path = path.with_suffix(".parquet.tmp")
+    df.to_parquet(tmp_path, index=False)
+    tmp_path.rename(path)
     print(f"[{source_name}] Checkpoint: {len(df)} records saved")
 
 
@@ -99,7 +102,9 @@ def fetch_one_page(url: str, params: dict, source_name: str) -> tuple[list | Non
     """Fetch a single page. Returns (records, hit_rate_limit).
     On 429: returns (None, True) — caller must wait BURST_COOLDOWN before ANY request."""
     try:
-        resp = req.get(url, params=params, timeout=60)
+        # Pass API key as header, not query param (avoid leaking in logs/URLs)
+        headers = {"X-API-KEY": DOL_API_KEY}
+        resp = req.get(url, params=params, headers=headers, timeout=60)
         if resp.status_code in (429, 500, 502, 503):
             print(f"[{source_name}] {resp.status_code} at offset {params.get('offset')} — treating as rate limit")
             return None, True
@@ -109,7 +114,9 @@ def fetch_one_page(url: str, params: dict, source_name: str) -> tuple[list | Non
             return data["data"], False
         return (data if isinstance(data, list) else []), False
     except req.RequestException as e:
-        print(f"[{source_name}] Error at offset {params.get('offset')}: {e}", file=sys.stderr)
+        # Sanitize error message — don't leak API key from URL
+        err_msg = str(e).split("X-API-KEY")[0].rstrip("&?")
+        print(f"[{source_name}] Error at offset {params.get('offset')}: {err_msg}", file=sys.stderr)
         return None, False
 
 
@@ -141,7 +148,6 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
                 "offset": offset,
                 "sort": "desc",
                 "sort_by": config.get("sort_by", "load_dt"),
-                "X-API-KEY": DOL_API_KEY,
             }
 
             records, hit_limit = fetch_one_page(url, params, name)
