@@ -92,7 +92,7 @@ parent_match AS (
         e.employer_id,
         pc.parent_name
     FROM employer_osha e
-    INNER JOIN parent_companies pc
+    INNER JOIN {{ ref('parent_companies') }} pc
         ON e.name_normalized LIKE pc.name_pattern || '%'
 ),
 
@@ -174,6 +174,6 @@ SELECT
 FROM employer_osha e
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
-LEFT JOIN naics_2022 n ON e.naics_code = n.naics_code
+LEFT JOIN {{ ref('naics_2022') }} n ON e.naics_code = n.naics_code
 LEFT JOIN parent_match pm ON e.employer_id = pm.employer_id
 LEFT JOIN location_counts lc ON e.employer_id = lc.employer_id
