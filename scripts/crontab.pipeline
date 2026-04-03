@@ -1,0 +1,27 @@
+# Crontab for pipeline server (fastdol-pipeline)
+# Install: crontab /opt/employer-compliance/scripts/crontab.pipeline
+#
+# All jobs wrapped with cron_alert.sh for Slack alerting on failure.
+# ALERT_WEBHOOK_URL must be set in .env.pipeline
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+ALERT_WEBHOOK_URL=
+
+# Pipeline: 2 AM daily (with flock to prevent overlap)
+0 2 * * *     source /opt/employer-compliance/.env.pipeline && flock -n /var/lock/pipeline.lock /opt/employer-compliance/scripts/cron_alert.sh "pipeline" bash /opt/employer-compliance/pipeline/run_pipeline.sh
+
+# Health check: after pipeline + safety net at 8:30 AM
+30 8 * * *    source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "health-check" bash /opt/employer-compliance/scripts/check_health.sh
+
+# Key rotation: hourly
+0 * * * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "rotate-keys" /opt/employer-compliance/venv/bin/python /opt/employer-compliance/scripts/rotate_keys.py
+
+# Backup: 4 AM daily
+0 4 * * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "backup" bash /opt/employer-compliance/scripts/backup.sh
+
+# Disk monitoring: every 6 hours
+0 */6 * * *   source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "disk-check" bash /opt/employer-compliance/scripts/check_disk.sh
+
+# Monthly usage reset: 1st of month at midnight
+0 0 1 * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "reset-usage" /opt/employer-compliance/venv/bin/python /opt/employer-compliance/scripts/reset_monthly_usage.py

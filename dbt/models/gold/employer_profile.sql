@@ -116,7 +116,21 @@ SELECT
         WHEN COALESCE(t1.violations_1yr, 0) < COALESCE(t3.violations_3yr, 0) / 3.0 * 0.5
              AND COALESCE(t3.violations_3yr, 0) >= 3                       THEN 'IMPROVING'
         ELSE 'STABLE'
-    END AS trend_signal
+    END AS trend_signal,
+
+    -- SVEP flag (OSHA Severe Violator Enforcement Program)
+    -- Criteria based on OSHA's actual SVEP designation:
+    -- 1. Any willful or repeat violation
+    -- 2. High-gravity serious violations with fatality/catastrophe inspection
+    -- 3. Repeat serious violations (3+)
+    -- We flag employers meeting criteria 1 or 3 (no fatality data in current dataset)
+    CASE
+        WHEN COALESCE(e.osha_willful_count_5yr, 0) >= 1 THEN true
+        WHEN COALESCE(e.osha_repeat_count_5yr, 0) >= 1 THEN true
+        WHEN COALESCE(e.osha_serious_count_5yr, 0) >= 3
+             AND COALESCE(e.osha_penalty_total_5yr, 0) > 50000 THEN true
+        ELSE false
+    END AS svep_flag
 
 FROM employer_osha e
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
