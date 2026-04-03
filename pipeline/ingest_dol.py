@@ -35,7 +35,7 @@ BASE_URL = "https://apiprod.dol.gov/v4/get"
 BRONZE_DIR = Path(os.environ.get("BRONZE_DIR", "/data/bronze"))
 TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-PAGE_SIZE = 200
+PAGE_SIZE = 10000         # DOL API allows up to 10,000 records or 5MB per request
 BURST_SIZE = 10           # requests per burst (13 actual limit, generous safety margin)
 BURST_COOLDOWN = 65       # seconds of SILENCE after successful burst
 RATE_LIMIT_WAIT = 120     # seconds to wait after hitting 429 (must be long enough to fully reset)
