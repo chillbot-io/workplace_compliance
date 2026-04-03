@@ -126,14 +126,17 @@ async def signup(body: SignupRequest):
             VALUES ($1, $2, $3)
         """, customer_id, token_hash, expires_at)
 
-    # TODO: Send verification email via Resend
-    # For now, return the token in the response (dev mode)
+    # Send verification email
+    from api.email import send_verification_email
+    try:
+        send_verification_email(body.email, raw_token)
+    except Exception as e:
+        print(f"WARNING: Failed to send verification email: {e}")
+
     return {
         "status": "created",
-        "message": "Account created. Please verify your email.",
+        "message": "Account created. Check your email to verify your account.",
         "customer_id": customer_id,
-        # Remove this in production — token should only be in the email
-        "_dev_verification_token": raw_token,
     }
 
 
@@ -281,12 +284,16 @@ async def forgot_password(body: ForgotPasswordRequest):
                 VALUES ($1, $2, $3)
             """, customer["id"], token_hash, expires_at)
 
-            # TODO: Send reset email via Resend
-            # For now, return token in response (dev mode)
+            # Send reset email
+            from api.email import send_password_reset_email
+            try:
+                send_password_reset_email(body.email, raw_token)
+            except Exception as e:
+                print(f"WARNING: Failed to send reset email: {e}")
+
             return {
                 "status": "sent",
                 "message": "If an account exists with this email, a reset link has been sent.",
-                "_dev_reset_token": raw_token,
             }
 
     # Always return 202 regardless — don't reveal whether email exists
