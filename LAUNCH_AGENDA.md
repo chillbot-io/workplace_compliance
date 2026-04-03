@@ -37,9 +37,10 @@
 | 2.4 | Dashboard home (usage stats, plan info, quick search) | 1 day | 2.3 | |
 | 2.5 | API keys management page (create, rotate, revoke) | Half day | 2.3 | |
 | 2.6 | Employer search page (type name → see risk profiles) | 1 day | 2.3 | |
-| 2.7 | Billing page (Stripe customer portal integration) | Half day | 2.3 | |
-| 2.8 | Metabase embedded dashboards (top violators, industry risk, heatmap) | 1 day | Metabase running | |
-| 2.9 | Deploy frontend (Vercel or same nginx) | 2 hours | 2.2-2.7 | |
+| 2.7 | CSV upload page (upload employer list → get risk profiles → download results) | 1 day | 2.3 | |
+| 2.8 | Billing page (Stripe customer portal integration) | Half day | 2.3 | |
+| 2.9 | Metabase embedded dashboards (top violators, industry risk, heatmap) | 1 day | Metabase running | |
+| 2.10 | Deploy frontend (Vercel or same nginx) | 2 hours | 2.2-2.8 | |
 
 ---
 
