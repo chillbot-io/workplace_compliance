@@ -9,3 +9,8 @@ CREATE INDEX IF NOT EXISTS idx_ep_city_trgm ON employer_profile USING gin (city 
 -- Pre-computed location count: how many employer_ids share the same normalized name
 -- Populated by pipeline (gold model). Used by API to show "1 of 347 Walmart locations"
 ALTER TABLE employer_profile ADD COLUMN IF NOT EXISTS location_count INTEGER DEFAULT 1;
+
+-- Parent company name from SEC Exhibit 21 subsidiary data
+-- NULL for standalone employers not matched to a known parent
+ALTER TABLE employer_profile ADD COLUMN IF NOT EXISTS parent_name TEXT;
+CREATE INDEX IF NOT EXISTS idx_ep_parent_name ON employer_profile (parent_name) WHERE parent_name IS NOT NULL;

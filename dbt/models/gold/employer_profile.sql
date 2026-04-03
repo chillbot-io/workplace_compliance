@@ -85,19 +85,35 @@ trend_3yr AS (
     GROUP BY employer_id
 )
 
--- Count how many employer_ids share the same normalized name
--- (e.g., all "WALMART" locations across the country)
+-- Map employer names to parent companies via seed table
+-- Uses normalized name prefix matching against known parent→subsidiary patterns
+parent_match AS (
+    SELECT
+        e.employer_id,
+        pc.parent_name
+    FROM employer_osha e
+    INNER JOIN parent_companies pc
+        ON e.name_normalized LIKE pc.name_pattern || '%'
+),
+
+-- Count locations per parent (if matched) or per normalized name (if not)
+-- This gives "347 Walmart locations" instead of "12 WALMART STORE" locations
 location_counts AS (
-    SELECT name_normalized, COUNT(*) AS location_count
-    FROM employer_osha
-    WHERE name_normalized IS NOT NULL
-    GROUP BY name_normalized
+    SELECT
+        e.employer_id,
+        COALESCE(pm.parent_name, e.name_normalized) AS group_key,
+        COUNT(*) OVER (PARTITION BY COALESCE(pm.parent_name, e.name_normalized)) AS location_count
+    FROM employer_osha e
+    LEFT JOIN parent_match pm ON e.employer_id = pm.employer_id
 )
 
 SELECT
     e.*,
 
-    -- Related locations sharing same normalized name
+    -- Parent company name (NULL if no parent match — this is a standalone employer)
+    pm.parent_name,
+
+    -- Related locations sharing same parent or normalized name
     COALESCE(lc.location_count, 1) AS location_count,
 
     -- Risk tier
@@ -159,4 +175,5 @@ FROM employer_osha e
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
 LEFT JOIN naics_2022 n ON e.naics_code = n.naics_code
-LEFT JOIN location_counts lc ON e.name_normalized = lc.name_normalized
+LEFT JOIN parent_match pm ON e.employer_id = pm.employer_id
+LEFT JOIN location_counts lc ON e.employer_id = lc.employer_id

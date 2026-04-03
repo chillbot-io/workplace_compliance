@@ -51,7 +51,7 @@ def sync():
         "osha_serious_willful", "osha_total_penalties",
         "osha_open_date_latest", "osha_avg_gravity",
         "risk_tier", "risk_score", "confidence_tier", "trend_signal",
-        "location_count",
+        "location_count", "parent_name",
     ]
 
     # Build the dataframe with Postgres column names

@@ -160,6 +160,159 @@ async def search_employers(
         })
 
 
+## --- Parent Company Rollup ---
+
+@router.get("/employers/parent/{parent_name}")
+async def get_parent_company(
+    parent_name: str,
+    key_row=Depends(check_scope("employer:read")),
+    state: str | None = Query(None, description="Filter locations by state"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """Parent company risk rollup — aggregate risk across all locations.
+
+    Returns company-wide statistics (total inspections, violations, penalties,
+    risk distribution) plus a paginated list of individual locations sorted
+    by risk score (worst first).
+
+    Premium feature for enterprise customers evaluating national employers.
+    """
+    await check_monthly_quota(key_row)
+
+    async with get_pool().acquire() as con:
+        # Build filter
+        params = [parent_name]
+        param_idx = 2
+        extra_where = ""
+
+        if state:
+            extra_where = f" AND state = ${param_idx}"
+            params.append(state.upper())
+            param_idx += 1
+
+        # Check parent exists (exact match first)
+        total_locations = await con.fetchval(f"""
+            SELECT COUNT(DISTINCT employer_id)
+            FROM employer_profile
+            WHERE parent_name = $1{extra_where}
+              AND snapshot_date = (SELECT MAX(snapshot_date) FROM employer_profile)
+        """, *params)
+
+        if not total_locations:
+            # Fall back to fuzzy name match
+            total_locations = await con.fetchval(f"""
+                SELECT COUNT(DISTINCT employer_id)
+                FROM employer_profile
+                WHERE similarity(parent_name, $1) > 0.5{extra_where}
+                  AND snapshot_date = (SELECT MAX(snapshot_date) FROM employer_profile)
+            """, *params)
+
+            if not total_locations:
+                raise HTTPException(404, detail={
+                    "error": "parent_not_found",
+                    "message": f'No parent company found matching "{parent_name}".',
+                })
+
+            name_filter = "similarity(parent_name, $1) > 0.5"
+        else:
+            name_filter = "parent_name = $1"
+
+        # Aggregate stats across all locations
+        agg = await con.fetchrow(f"""
+            SELECT
+                COUNT(DISTINCT employer_id) AS total_locations,
+                SUM(osha_inspections_5yr) AS total_inspections_5yr,
+                SUM(osha_violations_5yr) AS total_violations_5yr,
+                SUM(osha_total_penalties) AS total_penalties_5yr,
+                AVG(risk_score) AS avg_risk_score,
+                MAX(risk_score) AS max_risk_score,
+                MIN(risk_score) AS min_risk_score,
+                SUM(CASE WHEN risk_tier = 'HIGH' THEN 1 ELSE 0 END) AS high_count,
+                SUM(CASE WHEN risk_tier = 'ELEVATED' THEN 1 ELSE 0 END) AS elevated_count,
+                SUM(CASE WHEN risk_tier = 'MEDIUM' THEN 1 ELSE 0 END) AS medium_count,
+                SUM(CASE WHEN risk_tier = 'LOW' THEN 1 ELSE 0 END) AS low_count,
+                SUM(CASE WHEN trend_signal = 'WORSENING' THEN 1 ELSE 0 END) AS worsening_count,
+                SUM(CASE WHEN trend_signal = 'IMPROVING' THEN 1 ELSE 0 END) AS improving_count
+            FROM (
+                SELECT DISTINCT ON (employer_id) *
+                FROM employer_profile
+                WHERE {name_filter}{extra_where}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+        """, *params)
+
+        # States breakdown
+        states = await con.fetch(f"""
+            SELECT state, COUNT(DISTINCT employer_id) AS location_count
+            FROM (
+                SELECT DISTINCT ON (employer_id) employer_id, state
+                FROM employer_profile
+                WHERE {name_filter}{extra_where}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+            WHERE state IS NOT NULL
+            GROUP BY state
+            ORDER BY location_count DESC
+        """, *params)
+
+        # Paginated locations sorted by risk score (worst first)
+        locations = await con.fetch(f"""
+            SELECT * FROM (
+                SELECT DISTINCT ON (employer_id) *
+                FROM employer_profile
+                WHERE {name_filter}{extra_where}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+            ORDER BY risk_score DESC NULLS LAST
+            LIMIT ${param_idx} OFFSET ${param_idx + 1}
+        """, *params, limit, offset)
+
+    await record_usage(key_row, "/v1/employers/parent/{{name}}")
+    headers = await get_quota_headers(key_row)
+
+    agg_dict = dict(agg) if agg else {}
+
+    return JSONResponse(
+        content=json.loads(json.dumps({
+            "parent_name": parent_name,
+            "total_locations": agg_dict.get("total_locations", 0),
+            "aggregate": {
+                "total_inspections_5yr": agg_dict.get("total_inspections_5yr", 0),
+                "total_violations_5yr": agg_dict.get("total_violations_5yr", 0),
+                "total_penalties_5yr": agg_dict.get("total_penalties_5yr", 0),
+                "avg_risk_score": round(agg_dict.get("avg_risk_score") or 0, 1),
+                "max_risk_score": agg_dict.get("max_risk_score", 0),
+                "min_risk_score": agg_dict.get("min_risk_score", 0),
+                "risk_distribution": {
+                    "HIGH": agg_dict.get("high_count", 0),
+                    "ELEVATED": agg_dict.get("elevated_count", 0),
+                    "MEDIUM": agg_dict.get("medium_count", 0),
+                    "LOW": agg_dict.get("low_count", 0),
+                },
+                "trend_distribution": {
+                    "WORSENING": agg_dict.get("worsening_count", 0),
+                    "IMPROVING": agg_dict.get("improving_count", 0),
+                    "STABLE": (agg_dict.get("total_locations", 0)
+                               - agg_dict.get("worsening_count", 0)
+                               - agg_dict.get("improving_count", 0)),
+                },
+            },
+            "states": [
+                {"state": dict(s)["state"], "location_count": dict(s)["location_count"]}
+                for s in states
+            ],
+            "locations": {
+                "results": [_format_employer(r) for r in locations],
+                "total_count": agg_dict.get("total_locations", 0),
+                "limit": limit,
+                "offset": offset,
+            },
+        }, cls=CustomEncoder)),
+        headers=headers,
+    )
+
+
 @router.get("/employers/{employer_id}")
 async def get_employer(
     employer_id: str,
