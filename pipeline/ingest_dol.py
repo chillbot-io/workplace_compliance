@@ -191,8 +191,9 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             save_checkpoint(df[available] if available else df, name)
             last_checkpoint = total_fetched
 
-        # Cooldown — MUST make zero requests during this window
-        if not done:
+        # Cooldown — ONLY after a successful burst, NOT after a rate limit hit
+        # (rate limit already waited RATE_LIMIT_WAIT inside the burst loop)
+        if not done and burst_count > 0:
             print(f"[{name}] Cooldown {BURST_COOLDOWN}s (no requests)...")
             time.sleep(BURST_COOLDOWN)
 
