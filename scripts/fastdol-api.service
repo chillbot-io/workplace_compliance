@@ -1,0 +1,15 @@
+[Unit]
+Description=FastDOL API
+After=network.target postgresql.service pgbouncer.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/employer-compliance
+Environment=PG_DSN=postgresql://api:password1@127.0.0.1:6432/stablelabel
+ExecStart=/opt/employer-compliance/venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8001 --workers 4
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
