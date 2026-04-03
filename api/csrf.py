@@ -12,9 +12,9 @@ import os
 import secrets
 import hmac
 
-from fastapi import Request, HTTPException
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
 
 CSRF_COOKIE = "csrf_token"
@@ -49,15 +49,15 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         header_token = request.headers.get(CSRF_HEADER)
 
         if not cookie_token or not header_token:
-            raise HTTPException(403, detail={
-                "error": "csrf_missing",
-                "message": "CSRF token required. Send the csrf_token cookie value in the X-CSRF-Token header.",
-            })
+            return JSONResponse(
+                status_code=403,
+                content={"error": "csrf_missing", "message": "CSRF token required. Send the csrf_token cookie value in the X-CSRF-Token header."},
+            )
 
         if not hmac.compare_digest(cookie_token, header_token):
-            raise HTTPException(403, detail={
-                "error": "csrf_invalid",
-                "message": "CSRF token mismatch.",
-            })
+            return JSONResponse(
+                status_code=403,
+                content={"error": "csrf_invalid", "message": "CSRF token mismatch."},
+            )
 
         return await call_next(request)
