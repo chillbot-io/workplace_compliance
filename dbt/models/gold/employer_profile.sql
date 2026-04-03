@@ -86,14 +86,14 @@ trend_3yr AS (
 ),
 
 -- Map employer names to parent companies via seed table
--- Uses normalized name prefix matching against known parent→subsidiary patterns
+-- Exact match on normalized name (fast hash join instead of LIKE scan)
 parent_match AS (
     SELECT
         e.employer_id,
         pc.parent_name
     FROM employer_osha e
     INNER JOIN {{ ref('parent_companies') }} pc
-        ON e.name_normalized LIKE pc.name_pattern || '%'
+        ON e.name_normalized = pc.name_pattern
 ),
 
 -- Count locations per parent (if matched) or per normalized name (if not)
