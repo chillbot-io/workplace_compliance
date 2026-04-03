@@ -119,7 +119,7 @@ async def signup(body: SignupRequest):
         # Generate verification token
         raw_token = secrets.token_urlsafe(32)
         token_hash = _hash_token(raw_token)
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+        expires_at = datetime.utcnow() + timedelta(hours=24)
 
         await con.execute("""
             INSERT INTO email_verifications (customer_id, token_hash, expires_at)
@@ -163,7 +163,7 @@ async def verify_email(token: str, response: Response):
                 "message": "This verification link has already been used.",
             })
 
-        if row["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        if row["expires_at"] < datetime.utcnow():
             raise HTTPException(400, detail={
                 "error": "token_expired",
                 "message": "This verification link has expired. Please request a new one.",
@@ -274,7 +274,7 @@ async def forgot_password(body: ForgotPasswordRequest):
         if customer:
             raw_token = secrets.token_urlsafe(32)
             token_hash = _hash_token(raw_token)
-            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+            expires_at = datetime.utcnow() + timedelta(hours=1)
 
             await con.execute("""
                 INSERT INTO password_reset_tokens (customer_id, token_hash, expires_at)
@@ -325,7 +325,7 @@ async def reset_password(body: ResetPasswordRequest):
                 "message": "This reset link has already been used.",
             })
 
-        if row["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        if row["expires_at"] < datetime.utcnow():
             raise HTTPException(400, detail={
                 "error": "token_expired",
                 "message": "This reset link has expired. Please request a new one.",
