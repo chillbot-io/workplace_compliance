@@ -46,6 +46,7 @@ SOURCES = {
     "osha_inspections": {
         "path": "osha/inspection",
         "sort_by": "open_date",
+        "page_size": 5000,
         "fields": [
             "activity_nr", "estab_name", "site_address", "site_city",
             "site_state", "site_zip", "naics_code", "open_date",
@@ -55,6 +56,7 @@ SOURCES = {
     "osha_violations": {
         "path": "osha/violation",
         "sort_by": "issuance_date",
+        "page_size": 5000,
         "fields": [
             "activity_nr", "citation_id", "viol_type", "gravity",
             "nr_instances", "initial_penalty", "current_penalty", "abate_date",
@@ -64,6 +66,7 @@ SOURCES = {
     "whd_actions": {
         "path": "whd/enforcement",
         "sort_by": "findings_end_date",
+        "page_size": 1000,
         "fields": [
             "trade_nm", "legal_name", "street_addr_1_txt", "cty_nm",
             "st_cd", "zip_cd", "naics_code_description",
@@ -146,7 +149,7 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
         # Fire a burst of requests
         for _ in range(BURST_SIZE):
             params = {
-                "limit": PAGE_SIZE,
+                "limit": config.get("page_size", PAGE_SIZE),
                 "offset": offset,
                 "sort": "desc",
                 "sort_by": config.get("sort_by", "load_dt"),
