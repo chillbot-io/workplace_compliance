@@ -118,6 +118,13 @@ SELECT
         ELSE 'STABLE'
     END AS trend_signal,
 
+    -- Confidence tier — how confident are we in this employer's identity?
+    CASE
+        WHEN e.osha_inspections_5yr >= 3 THEN 'HIGH'
+        WHEN e.osha_inspections_5yr >= 1 THEN 'MEDIUM'
+        ELSE 'LOW'
+    END AS confidence_tier,
+
     -- SVEP flag (OSHA Severe Violator Enforcement Program)
     -- Criteria based on OSHA's actual SVEP designation:
     -- 1. Any willful or repeat violation
