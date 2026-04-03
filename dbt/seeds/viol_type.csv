@@ -1,0 +1,6 @@
+code,label,severity,penalty_multiplier
+W,Willful,HIGH,10
+R,Repeat,HIGH,5
+S,Serious,MEDIUM,1
+O,Other-than-Serious,LOW,0
+U,Unclassified,LOW,0

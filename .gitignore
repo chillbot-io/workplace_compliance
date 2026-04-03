@@ -1,0 +1,37 @@
+# Environment files (contain secrets)
+.env.api
+.env.pipeline
+pgbouncer_userlist.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Secrets
+*.pem
+*.key
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+*.duckdb-shm
+
+# Data
+/data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+dol-api-user-guide.pdf

@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+    volumes:
+      - /data:/data
+    env_file: .env.pipeline
+    restart: unless-stopped
