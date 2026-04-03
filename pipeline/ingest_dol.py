@@ -175,7 +175,7 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             offset += PAGE_SIZE
             burst_count += 1
 
-            if len(records) < PAGE_SIZE:
+            if len(records) < config.get("page_size", PAGE_SIZE):
                 done = True
                 break
 
