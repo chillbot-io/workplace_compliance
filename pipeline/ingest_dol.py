@@ -228,11 +228,18 @@ def save_parquet(df: pd.DataFrame, source_name: str):
 
 
 def main():
-    print(f"=== DOL Ingestion Starting — {TODAY} ===")
+    # Allow targeting specific source(s) via CLI: python ingest_dol.py whd_actions
+    requested = sys.argv[1:] if len(sys.argv) > 1 else list(SOURCES.keys())
+    for name in requested:
+        if name not in SOURCES:
+            print(f"ERROR: Unknown source '{name}'. Available: {', '.join(SOURCES.keys())}", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"=== DOL Ingestion Starting — {TODAY} ({', '.join(requested)}) ===")
     start_time = time.time()
     errors = []
 
-    source_list = list(SOURCES.items())
+    source_list = [(name, SOURCES[name]) for name in requested]
     for idx, (source_name, config) in enumerate(source_list):
         # Wait between sources to let rate limit fully reset
         if idx > 0:
