@@ -68,8 +68,8 @@ SOURCES = {
         "sort_by": "findings_end_date",
         "page_size": 1000,
         "fields": [
-            "trade_nm", "legal_name", "street_addr_1_txt", "cty_nm",
-            "st_cd", "zip_cd", "naics_code_description",
+            "trade_nm", "legal_name", "ein", "street_addr_1_txt", "cty_nm",
+            "st_cd", "zip_cd", "naics_code_description", "naic_cd",
             "findings_start_date", "findings_end_date",
             "bw_atp_amt", "ee_violtd_cnt", "case_id",
         ],
