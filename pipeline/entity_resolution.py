@@ -17,6 +17,7 @@ import duckdb
 import pandas as pd
 import splink.comparison_library as cl
 from splink import DuckDBAPI, Linker, SettingsCreator, block_on
+from splink.blocking_rule_library import CustomRule
 
 DUCKDB_PATH = os.environ.get("DUCKDB_PATH", "/data/duckdb/employer_compliance.duckdb")
 
@@ -87,10 +88,10 @@ def run_deduplication():
         blocking_rules_to_generate_predictions=[
             block_on("zip5"),
             block_on("site_state", "name_prefix"),
-            block_on("name_prefix", "naics_4digit"),  # multi-geography employers
+            block_on("name_prefix", "naics_4digit"),
         ],
         comparisons=[
-            cl.JaroWinklerAtThresholds("name_normalized", [0.92, 0.80]),
+            cl.ExactMatch("name_normalized"),
             cl.ExactMatch("naics_4digit"),
             cl.ExactMatch("site_state"),
         ],
@@ -105,12 +106,12 @@ def run_deduplication():
 
     print("EM training pass 1: blocking on naics_4digit...")
     linker.training.estimate_parameters_using_expectation_maximisation(
-        block_on("naics_4digit"), fix_u_probabilities=False
+        block_on("naics_4digit")
     )
 
     print("EM training pass 2: blocking on site_state...")
     linker.training.estimate_parameters_using_expectation_maximisation(
-        block_on("site_state"), fix_u_probabilities=False
+        block_on("site_state")
     )
 
     # Predict matches and cluster
