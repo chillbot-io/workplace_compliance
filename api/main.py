@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from api.auth import set_pool
+from api.csrf import CSRFMiddleware
 from api.routes.employers import router as employers_router
 from api.routes.auth import router as auth_router
 from api.routes.dashboard import router as dashboard_router
@@ -44,6 +45,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Employer Compliance API", version="1.0", lifespan=lifespan)
+
+# CSRF protection on dashboard routes
+app.add_middleware(CSRFMiddleware)
 
 # Register routes
 app.include_router(employers_router)
