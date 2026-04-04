@@ -243,8 +243,13 @@ def main():
     df = pd.concat([override_df, df]).drop_duplicates(subset=["name_pattern"], keep="first")
     print(f"  Added {len(df) - before + len(override_df)} manual overrides (national chains)")
 
-    # Clean parent names — remove commas that break CSV parsing in dbt
-    df["parent_name"] = df["parent_name"].str.replace(",", "", regex=False)
+    # Clean parent names — remove characters that break dbt CSV sniffer
+    df["parent_name"] = (df["parent_name"]
+        .str.replace(",", "", regex=False)
+        .str.replace("'", "", regex=False)
+        .str.replace('"', "", regex=False)
+        .str.replace("\\", "", regex=False)
+    )
 
     # Save as dbt seed
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
