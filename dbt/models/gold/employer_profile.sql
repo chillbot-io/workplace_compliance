@@ -20,6 +20,7 @@ WITH osha AS (
     WHERE name_normalized IS NOT NULL
       AND name_normalized NOT IN ('UNKNOWN', 'UNKNOWN CONTRACTOR', 'UNKNOWN EMPLOYER',
                                    'UNKNOWNINVALID ESTABLISHMENT', 'INVALID ESTABLISHMENT',
+                                   'UNKNOWN ROOFER', 'UNKNOWN SUBCONTRACTOR',
                                    'NA', 'NONE', 'TEST', 'TBD', 'NO NAME')
       AND LENGTH(name_normalized) > 2
 ),
