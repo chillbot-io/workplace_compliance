@@ -200,6 +200,11 @@ def sync_inspection_detail(duck, conn, pipeline_run_id):
 
         print(f"Syncing {len(insp_df):,} inspection records...")
 
+        # Cast integer columns — DuckDB SUM() produces floats
+        for col in ["violation_count", "serious_count", "willful_count", "repeat_count", "other_count"]:
+            if col in insp_df.columns:
+                insp_df[col] = insp_df[col].fillna(0).astype(int)
+
         # Truncate and reload
         cur.execute("TRUNCATE TABLE inspection_detail")
 
