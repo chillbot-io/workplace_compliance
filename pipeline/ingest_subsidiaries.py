@@ -243,17 +243,26 @@ def main():
     df = pd.concat([override_df, df]).drop_duplicates(subset=["name_pattern"], keep="first")
     print(f"  Added {len(df) - before + len(override_df)} manual overrides (national chains)")
 
-    # Clean parent names — remove characters that break dbt CSV sniffer
-    df["parent_name"] = (df["parent_name"]
-        .str.replace(",", "", regex=False)
-        .str.replace("'", "", regex=False)
-        .str.replace('"', "", regex=False)
-        .str.replace("\\", "", regex=False)
-    )
+    # Clean ALL string columns — remove characters that break dbt/DuckDB CSV sniffer
+    for col in ["name_pattern", "parent_name"]:
+        df[col] = (df[col]
+            .str.replace(",", "", regex=False)
+            .str.replace("'", "", regex=False)
+            .str.replace('"', "", regex=False)
+            .str.replace("\\", "", regex=False)
+            .str.replace("#", "", regex=False)
+        )
+
+    # Verify no problematic characters remain
+    for col in ["name_pattern", "parent_name"]:
+        bad = df[col].str.contains(r"[,'\"\\\#]", regex=True, na=False)
+        if bad.any():
+            print(f"  WARNING: {bad.sum()} rows in {col} still have special chars, dropping them")
+            df = df[~bad]
 
     # Save as dbt seed
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(OUTPUT_PATH, index=False, quoting=0)  # no quoting — commas stripped
+    df.to_csv(OUTPUT_PATH, index=False)
     print(f"\nSaved {len(df)} mappings to {OUTPUT_PATH}")
 
     # Show some examples
