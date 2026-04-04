@@ -188,6 +188,27 @@ whd_agg AS (
     GROUP BY employer_id
 ),
 
+-- MSHA: deterministic matching by name_normalized + state
+-- MSHA doesn't have zip, so match on name + state only
+msha_with_key AS (
+    SELECT
+        m.*,
+        m.name_normalized || '|' || COALESCE(m.state, '') AS msha_key
+    FROM {{ ref('msha_violation_norm') }} m
+    WHERE m.name_normalized IS NOT NULL
+      AND LENGTH(m.name_normalized) > 1
+),
+msha_agg AS (
+    SELECT
+        mk.name_normalized,
+        mk.state,
+        COUNT(DISTINCT mk.violation_no) AS msha_violations_5yr,
+        SUM(mk.assessed_penalty) AS msha_assessed_penalties
+    FROM msha_with_key mk
+    WHERE mk.violation_date >= CURRENT_DATE - INTERVAL '5 years'
+    GROUP BY mk.name_normalized, mk.state
+),
+
 -- Parent company matching (display-only, never merges profiles)
 parent_exact AS (
     SELECT e.employer_id, pc.parent_name
@@ -230,6 +251,10 @@ SELECT
     COALESCE(w.whd_cases_5yr, 0) AS whd_cases_5yr,
     COALESCE(w.whd_backwages_total, 0) AS whd_backwages_total,
     COALESCE(w.whd_ee_violated_total, 0) AS whd_ee_violated_total,
+
+    -- MSHA fields (matched by name + state — MSHA doesn't have zip)
+    COALESCE(msha.msha_violations_5yr, 0) AS msha_violations_5yr,
+    COALESCE(msha.msha_assessed_penalties, 0) AS msha_assessed_penalties,
 
     -- Parent company name (display-only)
     pm.parent_name,
@@ -297,6 +322,7 @@ SELECT
 
 FROM employer_osha e
 LEFT JOIN whd_agg w ON e.employer_id = w.employer_id
+LEFT JOIN msha_agg msha ON e.name_normalized = msha.name_normalized AND e.state = msha.state
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
 LEFT JOIN {{ ref('naics_2022') }} n ON e.naics_code = n.naics_code
