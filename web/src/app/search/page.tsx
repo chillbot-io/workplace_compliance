@@ -100,12 +100,12 @@ export default function SearchPage() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Employer name"
-          className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none"
+          className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none"
         />
         <select
           value={state}
           onChange={(e) => setState(e.target.value)}
-          className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none"
+          className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none"
         >
           <option value="">All states</option>
           {US_STATES.filter(Boolean).map((s) => (
@@ -118,12 +118,12 @@ export default function SearchPage() {
           onChange={(e) => setZip(e.target.value)}
           placeholder="ZIP"
           maxLength={5}
-          className="w-24 rounded-md border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none"
+          className="w-24 rounded-md border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none"
         />
         <button
           type="submit"
           disabled={loading}
-          className="rounded-md bg-rose-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-rose-600 disabled:opacity-50"
+          className="rounded-md bg-violet-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
         >
           {loading ? "Searching..." : "Search"}
         </button>
@@ -146,7 +146,7 @@ export default function SearchPage() {
               <Link
                 key={r.employer_id}
                 href={`/employers/${r.employer_id}`}
-                className="block rounded-lg bg-slate-800/50 border border-slate-700 p-4 hover:border-rose-500/50 hover:shadow-sm transition-all"
+                className="block rounded-lg bg-slate-800/50 border border-slate-700 p-4 hover:border-violet-500/50 hover:shadow-sm transition-all"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
@@ -154,7 +154,7 @@ export default function SearchPage() {
                     <div className="text-sm text-slate-400 mt-1">
                       {[r.city, r.state, r.zip].filter(Boolean).join(", ")}
                       {r.parent_name && (
-                        <span className="ml-2 text-xs text-rose-500">({r.parent_name})</span>
+                        <span className="ml-2 text-xs text-violet-500">({r.parent_name})</span>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">

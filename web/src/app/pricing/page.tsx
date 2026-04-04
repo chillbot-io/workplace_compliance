@@ -20,7 +20,7 @@ const plans = [
   {
     tier: "Growth", price: "$249", period: "/month", lookups: "5,000", perLookup: "$0.050",
     features: ["5,000 lookups/month", "Everything in Starter", "Parent company rollups", "Risk history & trends", "Priority support"],
-    cta: "Start Free Trial", ctaStyle: "bg-rose-500 text-white hover:bg-rose-600", popular: true,
+    cta: "Start Free Trial", ctaStyle: "bg-violet-500 text-white hover:bg-violet-600", popular: true,
   },
   {
     tier: "Pro", price: "$599", period: "/month", lookups: "25,000", perLookup: "$0.024",
@@ -51,11 +51,11 @@ export default function PricingPage() {
           <div
             key={plan.tier}
             className={`rounded-lg border p-6 flex flex-col ${
-              plan.popular ? "border-rose-500 ring-2 ring-rose-500" : "border-slate-700"
+              plan.popular ? "border-violet-500 ring-2 ring-violet-500" : "border-slate-700"
             } bg-slate-800/50`}
           >
             {plan.popular && (
-              <div className="text-xs font-semibold text-rose-500 mb-2">MOST POPULAR</div>
+              <div className="text-xs font-semibold text-violet-500 mb-2">MOST POPULAR</div>
             )}
             <div className="text-sm font-medium text-slate-400">{plan.tier}</div>
             <div className="mt-2">
@@ -70,7 +70,7 @@ export default function PricingPage() {
             <ul className="mt-6 space-y-3 flex-1">
               {plan.features.map((f) => (
                 <li key={f} className="flex items-start gap-2 text-sm text-slate-300">
-                  <svg className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <svg className="w-4 h-4 text-violet-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
                   {f}
@@ -93,7 +93,7 @@ export default function PricingPage() {
         <h2 className="text-xl font-bold text-white">Enterprise</h2>
         <p className="text-slate-300 mt-2">Unlimited lookups, custom SLAs, data licensing, dedicated support.</p>
         <a href="mailto:enterprise@fastdol.com"
-          className="mt-4 inline-block rounded-md bg-rose-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-rose-600">
+          className="mt-4 inline-block rounded-md bg-violet-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-600">
           Contact Sales
         </a>
       </div>

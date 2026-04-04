@@ -47,25 +47,25 @@ export default function LoginPage() {
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1">Email</label>
             <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none" />
+              className="w-full rounded-md border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none" />
           </div>
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-1">Password</label>
             <input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none" />
+              className="w-full rounded-md border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none" />
           </div>
 
           {error && <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">{error}</div>}
 
           <button type="submit" disabled={loading}
-            className="w-full rounded-md bg-rose-500 py-2.5 text-sm font-medium text-white hover:bg-rose-600 disabled:opacity-50">
+            className="w-full rounded-md bg-violet-500 py-2.5 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50">
             {loading ? "Logging in..." : "Log in"}
           </button>
         </form>
 
         <div className="mt-6 text-center text-sm text-slate-400 space-y-2">
-          <p><Link href="/forgot-password" className="text-rose-500 hover:underline">Forgot password?</Link></p>
-          <p>No account? <Link href="/signup" className="text-rose-500 hover:underline">Sign up free</Link></p>
+          <p><Link href="/forgot-password" className="text-violet-500 hover:underline">Forgot password?</Link></p>
+          <p>No account? <Link href="/signup" className="text-violet-500 hover:underline">Sign up free</Link></p>
         </div>
       </div>
     </div>

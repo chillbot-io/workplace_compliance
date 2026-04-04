@@ -10,7 +10,7 @@ export default function HomePage() {
         <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-white">
             Employer compliance data,{" "}
-            <span className="text-rose-500">instantly</span>
+            <span className="text-violet-500">instantly</span>
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-400 max-w-3xl mx-auto">
             Search OSHA violations, wage enforcement actions, and employer risk profiles.
@@ -19,7 +19,7 @@ export default function HomePage() {
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href="/signup"
-              className="rounded-md bg-rose-500 px-8 py-3 text-base font-medium text-white hover:bg-rose-600 shadow-lg shadow-rose-500/25 transition-all"
+              className="rounded-md bg-violet-500 px-8 py-3 text-base font-medium text-white hover:bg-violet-600 shadow-lg shadow-violet-500/25 transition-all"
             >
               Get Started Free
             </Link>
@@ -59,7 +59,7 @@ export default function HomePage() {
               { step: "3", title: "Make better decisions", desc: "Use data-driven risk assessments for underwriting, staffing placements, supply chain compliance, and vendor screening." },
             ].map((item) => (
               <div key={item.step} className="text-center">
-                <div className="mx-auto w-12 h-12 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center justify-center text-rose-500 font-bold text-lg mb-4">
+                <div className="mx-auto w-12 h-12 bg-violet-500/10 border border-violet-500/20 rounded-full flex items-center justify-center text-violet-500 font-bold text-lg mb-4">
                   {item.step}
                 </div>
                 <h3 className="font-semibold text-white mb-2">{item.title}</h3>
@@ -112,7 +112,7 @@ export default function HomePage() {
                   <div className="text-sm font-semibold text-white">{source.name}</div>
                   <div className="text-xs text-slate-500 mt-1">{source.desc}</div>
                 </div>
-                <div className="ml-auto text-sm font-bold text-rose-500 whitespace-nowrap">{source.count}</div>
+                <div className="ml-auto text-sm font-bold text-violet-500 whitespace-nowrap">{source.count}</div>
               </div>
             ))}
           </div>
@@ -138,11 +138,11 @@ export default function HomePage() {
               <div
                 key={plan.tier}
                 className={`rounded-lg border p-6 ${
-                  plan.popular ? "border-rose-500 ring-2 ring-rose-500 bg-slate-800" : "border-slate-700 bg-slate-800/50"
+                  plan.popular ? "border-violet-500 ring-2 ring-violet-500 bg-slate-800" : "border-slate-700 bg-slate-800/50"
                 }`}
               >
                 {plan.popular && (
-                  <div className="text-xs font-semibold text-rose-500 mb-2">MOST POPULAR</div>
+                  <div className="text-xs font-semibold text-violet-500 mb-2">MOST POPULAR</div>
                 )}
                 <div className="text-sm font-medium text-slate-400">{plan.tier}</div>
                 <div className="text-3xl font-bold text-white mt-1">{plan.price}</div>
@@ -151,7 +151,7 @@ export default function HomePage() {
                   href="/signup"
                   className={`mt-6 block rounded-md px-4 py-2 text-sm font-medium transition-colors ${
                     plan.popular
-                      ? "bg-rose-500 text-white hover:bg-rose-600"
+                      ? "bg-violet-500 text-white hover:bg-violet-600"
                       : "bg-slate-700 text-slate-300 hover:bg-slate-600"
                   }`}
                 >
@@ -160,24 +160,24 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-          <Link href="/pricing" className="mt-8 inline-block text-sm text-rose-500 hover:underline">
+          <Link href="/pricing" className="mt-8 inline-block text-sm text-violet-500 hover:underline">
             View full pricing details
           </Link>
         </div>
       </section>
 
       {/* Final CTA */}
-      <section className="py-20 bg-gradient-to-r from-rose-600 to-rose-500">
+      <section className="py-20 bg-gradient-to-r from-violet-600 to-violet-500">
         <div className="mx-auto max-w-3xl px-4 text-center">
           <h2 className="text-3xl font-bold text-white mb-4">
             Stop searching OSHA.gov one employer at a time
           </h2>
-          <p className="text-rose-100 mb-8">
+          <p className="text-violet-100 mb-8">
             50 free lookups. No credit card required.
           </p>
           <Link
             href="/signup"
-            className="rounded-md bg-white px-8 py-3 text-base font-medium text-rose-600 hover:bg-rose-50 shadow-lg transition-all"
+            className="rounded-md bg-white px-8 py-3 text-base font-medium text-violet-600 hover:bg-violet-50 shadow-lg transition-all"
           >
             Get Started Free
           </Link>
