@@ -123,8 +123,10 @@ def run_deduplication():
         ],
         comparisons=[
             cl.ExactMatch("name_normalized"),
+            cl.ExactMatch("zip5"),
             cl.ExactMatch("naics_4digit"),
             cl.ExactMatch("site_state"),
+            cl.ExactMatch("address_key"),
         ],
         # Set prior probability — with 2.5M records, chance of random match is low
         probability_two_random_records_match=1e-5,
