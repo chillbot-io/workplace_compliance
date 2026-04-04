@@ -90,6 +90,22 @@ trend_3yr AS (
     GROUP BY employer_id
 ),
 
+-- WHD: aggregate wage/hour violations per employer (joined by name + state)
+-- WHD doesn't go through Splink, so we match on normalized name + state
+whd_agg AS (
+    SELECT
+        name_normalized,
+        state,
+        COUNT(DISTINCT case_id) AS whd_cases_5yr,
+        SUM(backwages) AS whd_backwages_total,
+        SUM(employees_violated) AS whd_ee_violated_total
+    FROM {{ ref('whd_norm') }}
+    WHERE findings_end_date >= CURRENT_DATE - INTERVAL '5 years'
+      AND name_normalized IS NOT NULL
+      AND LENGTH(name_normalized) > 1
+    GROUP BY name_normalized, state
+),
+
 -- Map employer names to parent companies via seed table
 -- Two strategies: exact match for SEC data (613k rows, fast hash join),
 -- prefix match for manual overrides (~55 rows, fast even with LIKE)
@@ -128,32 +144,47 @@ location_counts AS (
 SELECT
     e.*,
 
+    -- WHD fields (matched by name + state, may be NULL if no WHD data)
+    COALESCE(w.whd_cases_5yr, 0) AS whd_cases_5yr,
+    COALESCE(w.whd_backwages_total, 0) AS whd_backwages_total,
+    COALESCE(w.whd_ee_violated_total, 0) AS whd_ee_violated_total,
+
     -- Parent company name (NULL if no parent match — this is a standalone employer)
     pm.parent_name,
 
     -- Related locations sharing same parent or normalized name
     COALESCE(lc.location_count, 1) AS location_count,
 
-    -- Risk tier
+    -- Risk tier (combines OSHA + WHD signals)
     CASE
         WHEN COALESCE(e.osha_willful_count_5yr, 0) >= 1                    THEN 'HIGH'
         WHEN COALESCE(e.osha_repeat_count_5yr, 0) >= 3                     THEN 'HIGH'
         WHEN COALESCE(e.osha_penalty_total_5yr, 0) > 100000                THEN 'HIGH'
+        WHEN COALESCE(w.whd_backwages_total, 0) > 100000                   THEN 'HIGH'
+        WHEN COALESCE(w.whd_ee_violated_total, 0) > 100                    THEN 'HIGH'
         WHEN COALESCE(e.osha_inspections_5yr, 0) >= 5
              AND COALESCE(e.osha_violations_5yr, 0) >= 10                  THEN 'ELEVATED'
+        WHEN COALESCE(w.whd_cases_5yr, 0) >= 3
+             AND COALESCE(w.whd_backwages_total, 0) > 10000                THEN 'ELEVATED'
         WHEN COALESCE(e.osha_violations_5yr, 0) >= 10                      THEN 'MEDIUM'
         WHEN COALESCE(e.osha_inspections_5yr, 0) BETWEEN 2 AND 4           THEN 'MEDIUM'
         WHEN COALESCE(e.osha_violations_5yr, 0) BETWEEN 3 AND 9            THEN 'MEDIUM'
+        WHEN COALESCE(w.whd_cases_5yr, 0) >= 2                             THEN 'MEDIUM'
         ELSE 'LOW'
     END AS risk_tier,
 
-    -- Risk score (0-100 weighted sum)
+    -- Risk score (0-100 weighted sum, combines OSHA + WHD)
     LEAST(100, GREATEST(0,
+        -- OSHA components (up to ~80 points)
         COALESCE(e.osha_willful_count_5yr, 0) * 25
       + COALESCE(e.osha_repeat_count_5yr, 0) * 10
       + COALESCE(e.osha_serious_count_5yr, 0) * 5
       + COALESCE(e.osha_other_count_5yr, 0) * 1
       + LEAST(20, COALESCE(e.osha_penalty_total_5yr, 0) / 10000.0)
+        -- WHD components (up to ~20 points)
+      + LEAST(10, COALESCE(w.whd_backwages_total, 0) / 10000.0)
+      + LEAST(5, COALESCE(w.whd_cases_5yr, 0) * 2.0)
+      + LEAST(5, COALESCE(w.whd_ee_violated_total, 0) / 20.0)
     )) AS risk_score,
 
     -- Trend signal
@@ -190,6 +221,7 @@ SELECT
     n.naics_title AS naics_description
 
 FROM employer_osha e
+LEFT JOIN whd_agg w ON e.name_normalized = w.name_normalized AND e.state = w.state
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
 LEFT JOIN {{ ref('naics_2022') }} n ON e.naics_code = n.naics_code
