@@ -149,12 +149,111 @@ def sync():
         conn.commit()
         print(f"Shadow-table swap complete. {staging_count} profiles live.")
 
+        # Step 6: Sync inspection + violation detail for the detail view
+        sync_inspection_detail(duck, conn, pipeline_run_id)
+
     except Exception:
         conn.rollback()
         raise
     finally:
         cur.close()
         conn.close()
+
+
+def sync_inspection_detail(duck, conn, pipeline_run_id):
+    """Sync inspection and violation detail from DuckDB to Postgres."""
+    cur = conn.cursor()
+
+    try:
+        # Get employer_id mapping from the gold model
+        # The gold model uses MD5-based employer_ids — we need to reconstruct them
+        insp_df = duck.execute("""
+            SELECT
+                o.activity_nr,
+                CAST(
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 1, 8) || '-' ||
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 9, 4) || '-' ||
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 13, 4) || '-' ||
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 17, 4) || '-' ||
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 21, 12)
+                AS VARCHAR) AS employer_id,
+                o.estab_name AS employer_name,
+                o.site_address,
+                o.site_city,
+                o.site_state,
+                o.zip5,
+                o.open_date,
+                o.close_case_date,
+                o.insp_type,
+                o.violation_count,
+                o.serious_count,
+                o.willful_count,
+                o.repeat_count,
+                o.other_count,
+                o.total_penalties,
+                o.avg_gravity
+            FROM osha_inspection_norm o
+            WHERE o.name_normalized IS NOT NULL
+              AND LENGTH(o.name_normalized) > 1
+              AND o.open_date >= CURRENT_DATE - INTERVAL '5 years'
+        """).df()
+
+        print(f"Syncing {len(insp_df):,} inspection records...")
+
+        # Truncate and reload
+        cur.execute("TRUNCATE TABLE inspection_detail")
+
+        buffer = StringIO()
+        insp_df.to_csv(buffer, index=False, header=False, na_rep="")
+        buffer.seek(0)
+
+        columns = ", ".join(insp_df.columns)
+        cur.copy_expert(
+            f"COPY inspection_detail ({columns}) FROM STDIN WITH (FORMAT csv, NULL '')",
+            buffer,
+        )
+
+        # Violations
+        viol_df = duck.execute("""
+            SELECT
+                v.activity_nr,
+                v.citation_id,
+                v.viol_type,
+                v.gravity,
+                v.nr_instances,
+                v.initial_penalty,
+                v.current_penalty,
+                v.abate_date,
+                v.issuance_date
+            FROM stg_osha_violations v
+            JOIN osha_inspection_norm o ON v.activity_nr = o.activity_nr
+            WHERE o.open_date >= CURRENT_DATE - INTERVAL '5 years'
+        """).df()
+
+        print(f"Syncing {len(viol_df):,} violation records...")
+
+        cur.execute("TRUNCATE TABLE violation_detail")
+        cur.execute("ALTER SEQUENCE violation_detail_id_seq RESTART WITH 1")
+
+        buffer = StringIO()
+        viol_df.to_csv(buffer, index=False, header=False, na_rep="")
+        buffer.seek(0)
+
+        viol_columns = ", ".join(viol_df.columns)
+        cur.copy_expert(
+            f"COPY violation_detail ({viol_columns}) FROM STDIN WITH (FORMAT csv, NULL '')",
+            buffer,
+        )
+
+        conn.commit()
+        insp_count = cur.execute("SELECT COUNT(*) FROM inspection_detail").fetchone()[0]
+        viol_count = cur.execute("SELECT COUNT(*) FROM violation_detail").fetchone()[0]
+        print(f"Inspection detail: {insp_count:,} inspections, {viol_count:,} violations synced.")
+
+    except Exception as e:
+        conn.rollback()
+        print(f"WARNING: Inspection detail sync failed: {e}", file=sys.stderr)
+        # Non-fatal — employer profiles are already live
 
 
 if __name__ == "__main__":
