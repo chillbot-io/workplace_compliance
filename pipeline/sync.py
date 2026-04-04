@@ -81,6 +81,12 @@ def sync():
 
     pg_df = pg_df[pg_columns]
 
+    # Deduplicate — parent_match join can produce dupes, keep first per employer_id
+    before = len(pg_df)
+    pg_df = pg_df.drop_duplicates(subset=["employer_id"], keep="first")
+    if len(pg_df) < before:
+        print(f"  Deduplicated: {before - len(pg_df)} duplicate employer_ids removed")
+
     # Cast integer columns — DuckDB SUM() produces floats
     int_cols = [
         "osha_inspections_5yr", "osha_violations_5yr", "osha_serious_willful",
