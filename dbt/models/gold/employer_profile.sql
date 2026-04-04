@@ -36,34 +36,49 @@ osha_with_location AS (
 
 -- Pass 2: Find cases where different location_keys share the same address_key + state + zip
 -- These are different name variants at the same physical address
-address_merge AS (
+-- Pick the location_key with most inspections as the canonical key for each address group
+address_groups AS (
     SELECT
+        address_key,
+        site_state,
+        zip5,
         location_key,
-        -- Within each address_key + state + zip group, pick the location_key with most inspections
-        -- as the "canonical" key that others merge into
-        FIRST_VALUE(location_key) OVER (
+        COUNT(*) AS inspection_count
+    FROM osha_with_location
+    WHERE address_key IS NOT NULL
+    GROUP BY address_key, site_state, zip5, location_key
+),
+address_ranked AS (
+    SELECT
+        address_key, site_state, zip5, location_key AS canonical_key,
+        ROW_NUMBER() OVER (
             PARTITION BY address_key, site_state, zip5
             ORDER BY inspection_count DESC
-        ) AS canonical_key
-    FROM (
-        SELECT
-            location_key,
-            address_key,
-            site_state,
-            zip5,
-            COUNT(*) AS inspection_count
-        FROM osha_with_location
-        WHERE address_key IS NOT NULL
-        GROUP BY location_key, address_key, site_state, zip5
-    )
+        ) AS rn
+    FROM address_groups
+),
+address_canonical AS (
+    SELECT address_key, site_state, zip5, canonical_key
+    FROM address_ranked
+    WHERE rn = 1
+),
+-- Map each location_key to its canonical key (if it shares an address with another key)
+address_merge AS (
+    SELECT DISTINCT
+        ag.location_key,
+        ac.canonical_key
+    FROM address_groups ag
+    JOIN address_canonical ac
+        ON ag.address_key = ac.address_key
+        AND ag.site_state = ac.site_state
+        AND ag.zip5 = ac.zip5
+    WHERE ag.location_key != ac.canonical_key
 ),
 
 -- Build final employer_key: use canonical key from address merge, fall back to location_key
 osha_with_employer AS (
     SELECT
         o.*,
-        -- Generate a deterministic UUID from the employer key
-        -- MD5 hash of the canonical grouping key → stable across pipeline runs
         COALESCE(am.canonical_key, o.location_key) AS employer_key
     FROM osha_with_location o
     LEFT JOIN address_merge am ON o.location_key = am.location_key
