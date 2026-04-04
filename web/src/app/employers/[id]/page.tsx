@@ -44,10 +44,10 @@ interface Inspection {
 }
 
 const TIER_COLORS: Record<string, string> = {
-  HIGH: "bg-red-100 text-red-800 border-red-200",
-  ELEVATED: "bg-orange-100 text-orange-800 border-orange-200",
-  MEDIUM: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  LOW: "bg-green-100 text-green-800 border-green-200",
+  HIGH: "bg-red-500/10 text-red-400 border-red-500/20",
+  ELEVATED: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  MEDIUM: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  LOW: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
 };
 
 function renderViolations(rawViolations: Inspection["violations"]): React.ReactNode {
@@ -83,12 +83,12 @@ function renderViolations(rawViolations: Inspection["violations"]): React.ReactN
             key={type}
             className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
               type.toLowerCase() === "willful"
-                ? "bg-red-100 text-red-700"
+                ? "bg-red-500/10 text-red-400"
                 : type.toLowerCase() === "repeat"
-                  ? "bg-orange-100 text-orange-700"
+                  ? "bg-orange-500/10 text-orange-400"
                   : type.toLowerCase() === "serious"
-                    ? "bg-yellow-100 text-yellow-700"
-                    : "bg-gray-100 text-gray-600"
+                    ? "bg-yellow-500/10 text-yellow-400"
+                    : "bg-slate-700 text-slate-400"
             }`}
           >
             {count} {type}
@@ -109,12 +109,12 @@ function renderViolations(rawViolations: Inspection["violations"]): React.ReactN
             key={type}
             className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
               type.toLowerCase() === "willful"
-                ? "bg-red-100 text-red-700"
+                ? "bg-red-500/10 text-red-400"
                 : type.toLowerCase() === "repeat"
-                  ? "bg-orange-100 text-orange-700"
+                  ? "bg-orange-500/10 text-orange-400"
                   : type.toLowerCase() === "serious"
-                    ? "bg-yellow-100 text-yellow-700"
-                    : "bg-gray-100 text-gray-600"
+                    ? "bg-yellow-500/10 text-yellow-400"
+                    : "bg-slate-700 text-slate-400"
             }`}
           >
             {count} {type}
@@ -163,43 +163,43 @@ export default function EmployerDetailPage({ params }: { params: Promise<{ id: s
     load();
   }, [id]);
 
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
-  if (error) return <div className="p-8 text-center text-red-600">{error}</div>;
+  if (loading) return <div className="p-8 text-center text-slate-400">Loading...</div>;
+  if (error) return <div className="p-8 text-center text-red-400">{error}</div>;
   if (!employer) return null;
 
   return (
     <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-8">
       <title>{`${employer.employer_name} - FastDOL`}</title>
-      <Link href="/search" className="text-sm text-blue-600 hover:underline mb-4 inline-block">&larr; Back to search</Link>
+      <Link href="/search" className="text-sm text-rose-500 hover:underline mb-4 inline-block">&larr; Back to search</Link>
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{employer.employer_name}</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-white">{employer.employer_name}</h1>
+          <p className="text-slate-400 mt-1">
             {[employer.address, employer.city, employer.state, employer.zip].filter(Boolean).join(", ")}
           </p>
           {employer.parent_name && (
             <Link href={`/search?parent=${encodeURIComponent(employer.parent_name)}`}
-              className="text-sm text-blue-600 hover:underline mt-1 inline-block">
+              className="text-sm text-rose-500 hover:underline mt-1 inline-block">
               Parent: {employer.parent_name} ({employer.location_count} locations)
             </Link>
           )}
           {employer.naics_description && (
-            <p className="text-sm text-gray-400 mt-1">{employer.naics_code} — {employer.naics_description}</p>
+            <p className="text-sm text-slate-500 mt-1">{employer.naics_code} — {employer.naics_description}</p>
           )}
         </div>
         <div className="text-right shrink-0">
-          <span className={`inline-block rounded-full px-3 py-1 text-sm font-semibold ${TIER_COLORS[employer.risk_tier] || "bg-gray-100"}`}>
+          <span className={`inline-block rounded-full px-3 py-1 text-sm font-semibold ${TIER_COLORS[employer.risk_tier] || "bg-slate-700"}`}>
             {employer.risk_tier}
           </span>
-          <div className="text-3xl font-bold text-gray-900 mt-2">{employer.risk_score}</div>
-          <div className="text-xs text-gray-500">risk score</div>
+          <div className="text-3xl font-bold text-white mt-2">{employer.risk_score}</div>
+          <div className="text-xs text-slate-500">risk score</div>
         </div>
       </div>
 
       {employer.risk_note && (
-        <div className="rounded-md bg-blue-50 border border-blue-200 p-3 text-sm text-blue-700 mb-6">
+        <div className="rounded-md bg-rose-500/10 border border-rose-500/20 p-3 text-sm text-rose-400 mb-6">
           {employer.risk_note}
         </div>
       )}
@@ -216,9 +216,9 @@ export default function EmployerDetailPage({ params }: { params: Promise<{ id: s
           { label: "Confidence", value: employer.confidence_tier || "—" },
           { label: "SVEP Flag", value: employer.svep_flag ? "Yes" : "No" },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-gray-200 p-4">
-            <div className="text-xs text-gray-500">{stat.label}</div>
-            <div className="text-lg font-semibold text-gray-900 mt-1">{String(stat.value)}</div>
+          <div key={stat.label} className="rounded-lg bg-slate-800/50 border border-slate-700 p-4">
+            <div className="text-xs text-slate-500">{stat.label}</div>
+            <div className="text-lg font-semibold text-white mt-1">{String(stat.value)}</div>
           </div>
         ))}
       </div>
@@ -226,11 +226,11 @@ export default function EmployerDetailPage({ params }: { params: Promise<{ id: s
       {/* Inspection history */}
       {inspections.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Inspection History</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Inspection History</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 text-left text-xs text-gray-500">
+                <tr className="border-b border-slate-700 text-left text-xs text-slate-500">
                   <th className="pb-2 pr-4">Date</th>
                   <th className="pb-2 pr-4">Type</th>
                   <th className="pb-2 pr-4">Violations</th>
@@ -239,7 +239,7 @@ export default function EmployerDetailPage({ params }: { params: Promise<{ id: s
               </thead>
               <tbody>
                 {inspections.map((insp, i) => (
-                  <tr key={i} className="border-b border-gray-100">
+                  <tr key={i} className="border-b border-slate-700/50 text-slate-300">
                     <td className="py-2 pr-4">{insp.inspection_date || "—"}</td>
                     <td className="py-2 pr-4">{insp.insp_type_label || "—"}</td>
                     <td className="py-2 pr-4">

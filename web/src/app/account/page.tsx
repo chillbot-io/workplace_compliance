@@ -31,13 +31,13 @@ export default function AccountPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  if (loading) return <div className="p-8 text-center text-slate-400">Loading...</div>;
   if (error) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center px-4">
         <div className="text-center">
-          <p className="text-gray-600 mb-4">{error}</p>
-          <Link href="/login" className="rounded-md bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700">Log in</Link>
+          <p className="text-slate-400 mb-4">{error}</p>
+          <Link href="/login" className="rounded-md bg-rose-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-rose-600">Log in</Link>
         </div>
       </div>
     );
@@ -46,47 +46,47 @@ export default function AccountPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8">
       <title>Account - FastDOL</title>
-      <h1 className="text-2xl font-bold text-gray-900 mb-8">Account</h1>
+      <h1 className="text-2xl font-bold text-white mb-8">Account</h1>
 
       {/* API Keys */}
-      <div className="rounded-lg border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold text-gray-900 mb-4">API Keys</h2>
+      <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-6 mb-6">
+        <h2 className="font-semibold text-white mb-4">API Keys</h2>
         {Array.isArray(keys) && keys.length > 0 ? (
           <div className="space-y-3">
             {keys.map((key, i) => (
-              <div key={i} className="flex items-center justify-between bg-gray-50 rounded p-3">
+              <div key={i} className="flex items-center justify-between bg-slate-800 border border-slate-600 rounded p-3">
                 <div>
-                  <code className="text-sm font-mono">{key.key_prefix || "***"}...</code>
+                  <code className="text-sm font-mono text-white">{key.key_prefix || "***"}...</code>
                   <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                    key.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
+                    key.status === "active" ? "bg-emerald-500/10 text-emerald-400" : "bg-slate-700 text-slate-400"
                   }`}>
                     {key.status}
                   </span>
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-slate-400">
                   {key.current_usage}/{key.monthly_limit} lookups
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No API keys yet. They are created when you verify your email.</p>
+          <p className="text-sm text-slate-400">No API keys yet. They are created when you verify your email.</p>
         )}
       </div>
 
       {/* Quick links */}
       <div className="grid sm:grid-cols-3 gap-4">
-        <Link href="/search" className="rounded-lg border border-gray-200 p-4 text-center hover:border-blue-300">
-          <div className="font-semibold text-gray-900">Search</div>
-          <div className="text-sm text-gray-500">Look up employers</div>
+        <Link href="/search" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-rose-500/50">
+          <div className="font-semibold text-white">Search</div>
+          <div className="text-sm text-slate-400">Look up employers</div>
         </Link>
-        <Link href="/upload" className="rounded-lg border border-gray-200 p-4 text-center hover:border-blue-300">
-          <div className="font-semibold text-gray-900">CSV Upload</div>
-          <div className="text-sm text-gray-500">Bulk lookup</div>
+        <Link href="/upload" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-rose-500/50">
+          <div className="font-semibold text-white">CSV Upload</div>
+          <div className="text-sm text-slate-400">Bulk lookup</div>
         </Link>
-        <Link href="/pricing" className="rounded-lg border border-gray-200 p-4 text-center hover:border-blue-300">
-          <div className="font-semibold text-gray-900">Upgrade</div>
-          <div className="text-sm text-gray-500">Get more lookups</div>
+        <Link href="/pricing" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-rose-500/50">
+          <div className="font-semibold text-white">Upgrade</div>
+          <div className="text-sm text-slate-400">Get more lookups</div>
         </Link>
       </div>
     </div>

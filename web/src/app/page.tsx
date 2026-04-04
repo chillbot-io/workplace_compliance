@@ -5,26 +5,27 @@ export default function HomePage() {
   return (
     <>
       {/* Hero */}
-      <section className="bg-gradient-to-b from-blue-50 to-white py-20 sm:py-28">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-gray-900">
+      <section className="relative py-24 sm:py-32 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-[#0f172a] to-[#1e293b]" />
+        <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-white">
             Employer compliance data,{" "}
-            <span className="text-blue-600">instantly</span>
+            <span className="text-rose-500">instantly</span>
           </h1>
-          <p className="mt-6 text-lg sm:text-xl text-gray-600 max-w-3xl mx-auto">
+          <p className="mt-6 text-lg sm:text-xl text-slate-400 max-w-3xl mx-auto">
             Search OSHA violations, wage enforcement actions, and employer risk profiles.
             One API call replaces hours of manual research on government websites.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href="/signup"
-              className="rounded-md bg-blue-600 px-8 py-3 text-base font-medium text-white hover:bg-blue-700 shadow-sm"
+              className="rounded-md bg-rose-500 px-8 py-3 text-base font-medium text-white hover:bg-rose-600 shadow-lg shadow-rose-500/25 transition-all"
             >
               Get Started Free
             </Link>
             <Link
               href="/docs"
-              className="rounded-md bg-white px-8 py-3 text-base font-medium text-gray-700 border border-gray-300 hover:bg-gray-50"
+              className="rounded-md bg-slate-800 px-8 py-3 text-base font-medium text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
             >
               View API Docs
             </Link>
@@ -33,12 +34,12 @@ export default function HomePage() {
       </section>
 
       {/* Demo search */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-[#1e293b]">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">
+          <h2 className="text-2xl font-bold text-center text-white mb-2">
             Try it now
           </h2>
-          <p className="text-center text-gray-600 mb-8">
+          <p className="text-center text-slate-400 mb-8">
             Search any employer — no signup required
           </p>
           <DemoSearch />
@@ -46,9 +47,9 @@ export default function HomePage() {
       </section>
 
       {/* How it works */}
-      <section className="py-16 bg-gray-50">
+      <section className="py-16 bg-[#0f172a]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-12">
+          <h2 className="text-2xl font-bold text-center text-white mb-12">
             How it works
           </h2>
           <div className="grid md:grid-cols-3 gap-8">
@@ -58,11 +59,11 @@ export default function HomePage() {
               { step: "3", title: "Make better decisions", desc: "Use data-driven risk assessments for underwriting, staffing placements, supply chain compliance, and vendor screening." },
             ].map((item) => (
               <div key={item.step} className="text-center">
-                <div className="mx-auto w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-lg mb-4">
+                <div className="mx-auto w-12 h-12 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center justify-center text-rose-500 font-bold text-lg mb-4">
                   {item.step}
                 </div>
-                <h3 className="font-semibold text-gray-900 mb-2">{item.title}</h3>
-                <p className="text-sm text-gray-600">{item.desc}</p>
+                <h3 className="font-semibold text-white mb-2">{item.title}</h3>
+                <p className="text-sm text-slate-400">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -70,9 +71,9 @@ export default function HomePage() {
       </section>
 
       {/* Who it's for */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-[#1e293b]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-12">
+          <h2 className="text-2xl font-bold text-center text-white mb-12">
             Built for
           </h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -82,9 +83,9 @@ export default function HomePage() {
               { title: "Compliance Teams", desc: "Monitor vendor and supply chain compliance status continuously." },
               { title: "Developers", desc: "Embed employer safety data into your platform via REST API." },
             ].map((item) => (
-              <div key={item.title} className="rounded-lg border border-gray-200 p-6">
-                <h3 className="font-semibold text-gray-900 mb-2">{item.title}</h3>
-                <p className="text-sm text-gray-600">{item.desc}</p>
+              <div key={item.title} className="rounded-lg border border-slate-700 bg-slate-800/50 p-6 hover:border-slate-600 transition-colors">
+                <h3 className="font-semibold text-white mb-2">{item.title}</h3>
+                <p className="text-sm text-slate-400">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -92,9 +93,9 @@ export default function HomePage() {
       </section>
 
       {/* Data sources */}
-      <section className="py-16 bg-gray-50">
+      <section className="py-16 bg-[#0f172a]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-12">
+          <h2 className="text-2xl font-bold text-center text-white mb-12">
             Federal enforcement data, normalized and scored
           </h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -106,12 +107,12 @@ export default function HomePage() {
               { name: "Entity Resolution", count: "1.1M", desc: "Clusters linking records to canonical employers" },
               { name: "Updated Nightly", count: "24h", desc: "OSHA data refreshed daily, WHD weekly" },
             ].map((source) => (
-              <div key={source.name} className="flex items-start gap-4 rounded-lg bg-white border border-gray-200 p-5">
+              <div key={source.name} className="flex items-start gap-4 rounded-lg bg-slate-800/50 border border-slate-700 p-5">
                 <div>
-                  <div className="text-sm font-semibold text-gray-900">{source.name}</div>
-                  <div className="text-xs text-gray-500 mt-1">{source.desc}</div>
+                  <div className="text-sm font-semibold text-white">{source.name}</div>
+                  <div className="text-xs text-slate-500 mt-1">{source.desc}</div>
                 </div>
-                <div className="ml-auto text-sm font-bold text-blue-600 whitespace-nowrap">{source.count}</div>
+                <div className="ml-auto text-sm font-bold text-rose-500 whitespace-nowrap">{source.count}</div>
               </div>
             ))}
           </div>
@@ -119,12 +120,12 @@ export default function HomePage() {
       </section>
 
       {/* Pricing preview */}
-      <section className="py-16 bg-white">
+      <section className="py-16 bg-[#1e293b]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+          <h2 className="text-2xl font-bold text-white mb-4">
             Simple, transparent pricing
           </h2>
-          <p className="text-gray-600 mb-8">
+          <p className="text-slate-400 mb-8">
             Start free. Upgrade when you need more lookups.
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
@@ -137,21 +138,21 @@ export default function HomePage() {
               <div
                 key={plan.tier}
                 className={`rounded-lg border p-6 ${
-                  plan.popular ? "border-blue-600 ring-2 ring-blue-600" : "border-gray-200"
+                  plan.popular ? "border-rose-500 ring-2 ring-rose-500 bg-slate-800" : "border-slate-700 bg-slate-800/50"
                 }`}
               >
                 {plan.popular && (
-                  <div className="text-xs font-semibold text-blue-600 mb-2">MOST POPULAR</div>
+                  <div className="text-xs font-semibold text-rose-500 mb-2">MOST POPULAR</div>
                 )}
-                <div className="text-sm font-medium text-gray-500">{plan.tier}</div>
-                <div className="text-3xl font-bold text-gray-900 mt-1">{plan.price}</div>
-                <div className="text-sm text-gray-500 mt-1">{plan.lookups}</div>
+                <div className="text-sm font-medium text-slate-400">{plan.tier}</div>
+                <div className="text-3xl font-bold text-white mt-1">{plan.price}</div>
+                <div className="text-sm text-slate-500 mt-1">{plan.lookups}</div>
                 <Link
                   href="/signup"
-                  className={`mt-6 block rounded-md px-4 py-2 text-sm font-medium ${
+                  className={`mt-6 block rounded-md px-4 py-2 text-sm font-medium transition-colors ${
                     plan.popular
-                      ? "bg-blue-600 text-white hover:bg-blue-700"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      ? "bg-rose-500 text-white hover:bg-rose-600"
+                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
                   }`}
                 >
                   {plan.cta}
@@ -159,24 +160,24 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-          <Link href="/pricing" className="mt-8 inline-block text-sm text-blue-600 hover:underline">
+          <Link href="/pricing" className="mt-8 inline-block text-sm text-rose-500 hover:underline">
             View full pricing details
           </Link>
         </div>
       </section>
 
       {/* Final CTA */}
-      <section className="py-20 bg-blue-600">
+      <section className="py-20 bg-gradient-to-r from-rose-600 to-rose-500">
         <div className="mx-auto max-w-3xl px-4 text-center">
           <h2 className="text-3xl font-bold text-white mb-4">
             Stop searching OSHA.gov one employer at a time
           </h2>
-          <p className="text-blue-100 mb-8">
+          <p className="text-rose-100 mb-8">
             50 free lookups. No credit card required.
           </p>
           <Link
             href="/signup"
-            className="rounded-md bg-white px-8 py-3 text-base font-medium text-blue-600 hover:bg-blue-50 shadow-sm"
+            className="rounded-md bg-white px-8 py-3 text-base font-medium text-rose-600 hover:bg-rose-50 shadow-lg transition-all"
           >
             Get Started Free
           </Link>

@@ -20,10 +20,10 @@ interface DemoResult {
 }
 
 const TIER_COLORS: Record<string, string> = {
-  HIGH: "bg-red-100 text-red-800",
-  ELEVATED: "bg-orange-100 text-orange-800",
-  MEDIUM: "bg-yellow-100 text-yellow-800",
-  LOW: "bg-green-100 text-green-800",
+  HIGH: "bg-red-500/20 text-red-400 border border-red-500/30",
+  ELEVATED: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
+  MEDIUM: "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
+  LOW: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
 };
 
 export function DemoSearch() {
@@ -75,7 +75,7 @@ export function DemoSearch() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Employer name (e.g., Walmart, Amazon)"
           aria-label="Employer name"
-          className="flex-1 rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none"
         />
         <input
           type="text"
@@ -83,20 +83,20 @@ export function DemoSearch() {
           onChange={(e) => setZip(e.target.value)}
           placeholder="ZIP (optional)"
           aria-label="ZIP code"
-          className="w-full sm:w-28 rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          className="w-full sm:w-28 rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none"
           maxLength={5}
         />
         <button
           type="submit"
           disabled={loading}
-          className="rounded-md bg-blue-600 px-6 py-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded-md bg-rose-500 px-6 py-3 text-sm font-medium text-white hover:bg-rose-600 disabled:opacity-50 transition-colors"
         >
           {loading ? "Searching..." : "Search"}
         </button>
       </form>
 
       {error && (
-        <div className="mt-4 rounded-md bg-red-50 border border-red-200 p-4 text-sm text-red-700">
+        <div className="mt-4 rounded-md bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-400">
           {error}
         </div>
       )}
@@ -106,22 +106,22 @@ export function DemoSearch() {
           {results.map((r) => (
             <div
               key={r.employer_id}
-              className="rounded-lg border border-gray-200 p-4 hover:border-gray-300 transition-colors"
+              className="rounded-lg border border-slate-700 bg-slate-800/50 p-4 hover:border-slate-600 transition-colors"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <div className="font-semibold text-gray-900 truncate">
+                  <div className="font-semibold text-white truncate">
                     {r.employer_name}
                   </div>
-                  <div className="text-sm text-gray-500 mt-1">
+                  <div className="text-sm text-slate-500 mt-1">
                     {[r.city, r.state, r.zip].filter(Boolean).join(", ")}
                     {r.parent_name && (
-                      <span className="ml-2 text-xs text-blue-600">
+                      <span className="ml-2 text-xs text-rose-400">
                         ({r.parent_name})
                       </span>
                     )}
                   </div>
-                  <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                  <div className="flex gap-4 mt-2 text-xs text-slate-500">
                     <span>{r.osha_inspections_5yr} inspections (5yr)</span>
                     <span>{r.osha_violations_5yr} violations</span>
                     <span>${(r.osha_total_penalties || 0).toLocaleString()} penalties</span>
@@ -131,23 +131,23 @@ export function DemoSearch() {
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${TIER_COLORS[r.risk_tier] || "bg-gray-100 text-gray-800"}`}>
+                  <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${TIER_COLORS[r.risk_tier] || "bg-slate-700 text-slate-400"}`}>
                     {r.risk_tier}
                   </span>
-                  <span className="text-sm font-bold text-gray-700">
+                  <span className="text-sm font-bold text-white">
                     {r.risk_score}
                   </span>
                 </div>
               </div>
               {r.risk_note && (
-                <div className="mt-2 text-xs text-gray-400 italic">{r.risk_note}</div>
+                <div className="mt-2 text-xs text-slate-600 italic">{r.risk_note}</div>
               )}
             </div>
           ))}
 
           {totalCount > 3 && (
             <div className="text-center pt-2">
-              <Link href="/signup" className="text-sm text-blue-600 hover:underline">
+              <Link href="/signup" className="text-sm text-rose-500 hover:underline">
                 Sign up free to see all {totalCount} results
               </Link>
             </div>
@@ -156,7 +156,7 @@ export function DemoSearch() {
       )}
 
       {results.length === 0 && !loading && !error && searched && (
-        <div className="mt-6 text-center text-sm text-gray-500">
+        <div className="mt-6 text-center text-sm text-slate-500">
           No results. Try a different name or remove the ZIP filter.
         </div>
       )}
