@@ -91,14 +91,27 @@ trend_3yr AS (
 ),
 
 -- Map employer names to parent companies via seed table
--- Exact match on normalized name (fast hash join instead of LIKE scan)
-parent_match AS (
-    SELECT
-        e.employer_id,
-        pc.parent_name
+-- Two strategies: exact match for SEC data (613k rows, fast hash join),
+-- prefix match for manual overrides (~55 rows, fast even with LIKE)
+parent_exact AS (
+    SELECT e.employer_id, pc.parent_name
     FROM employer_osha e
     INNER JOIN {{ ref('parent_companies') }} pc
         ON e.name_normalized = pc.name_pattern
+        AND pc.match_type = 'exact'
+),
+parent_prefix AS (
+    SELECT e.employer_id, pc.parent_name
+    FROM employer_osha e
+    INNER JOIN {{ ref('parent_companies') }} pc
+        ON e.name_normalized LIKE pc.name_pattern || '%'
+        AND pc.match_type = 'prefix'
+),
+parent_match AS (
+    SELECT employer_id, parent_name FROM parent_exact
+    UNION ALL
+    SELECT employer_id, parent_name FROM parent_prefix
+    WHERE employer_id NOT IN (SELECT employer_id FROM parent_exact)
 ),
 
 -- Count locations per parent (if matched) or per normalized name (if not)

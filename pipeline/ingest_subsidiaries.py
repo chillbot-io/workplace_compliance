@@ -134,6 +134,7 @@ def build_parent_map(entities: dict, links: list) -> pd.DataFrame:
 
     # Deduplicate — keep one parent per subsidiary name pattern
     df = df.drop_duplicates(subset=["name_pattern"])
+    df["match_type"] = "exact"
 
     # Also add the parent company itself as a pattern
     parent_self_rows = []
@@ -237,6 +238,7 @@ def main():
     ]
 
     override_df = pd.DataFrame(overrides, columns=["name_pattern", "parent_name"])
+    override_df["match_type"] = "prefix"
     before = len(df)
     df = pd.concat([override_df, df]).drop_duplicates(subset=["name_pattern"], keep="first")
     print(f"  Added {len(df) - before + len(override_df)} manual overrides (national chains)")
