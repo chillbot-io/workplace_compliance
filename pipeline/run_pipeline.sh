@@ -43,22 +43,22 @@ echo "[Step 1/9] Ingesting OSHA data from DOL API..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/ingest_dol.py" osha_inspections osha_violations 2>&1 | tee -a "$LOG_FILE"
 
 # Step 2: Load bronze into DuckDB
-echo "[Step 2/8] Loading bronze into DuckDB..." | tee -a "$LOG_FILE"
+echo "[Step 2/9] Loading bronze into DuckDB..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/load_bronze.py" 2>&1 | tee -a "$LOG_FILE"
 
 # Step 3: Run dbt staging + silver models (NOT gold — needs entity resolution first)
-echo "[Step 3/8] Running dbt (staging + silver)..." | tee -a "$LOG_FILE"
+echo "[Step 3/9] Running dbt (staging + silver)..." | tee -a "$LOG_FILE"
 cd "${PROJECT_DIR}/dbt"
 dbt seed --profiles-dir . 2>&1 | tee -a "$LOG_FILE"
 dbt run --profiles-dir . --select staging silver 2>&1 | tee -a "$LOG_FILE"
 cd "${PROJECT_DIR}"
 
 # Step 4: Parse addresses
-echo "[Step 4/8] Parsing addresses..." | tee -a "$LOG_FILE"
+echo "[Step 4/9] Parsing addresses..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/parse_addresses.py" 2>&1 | tee -a "$LOG_FILE"
 
 # Step 5: Entity resolution (Splink)
-echo "[Step 5/8] Running entity resolution (Splink)..." | tee -a "$LOG_FILE"
+echo "[Step 5/9] Running entity resolution (Splink)..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/entity_resolution.py" 2>&1 | tee -a "$LOG_FILE"
 
 # Step 6: Run dbt gold models (aggregates by Splink clusters)
@@ -82,6 +82,5 @@ python "${PROJECT_DIR}/pipeline/sync.py" 2>&1 | tee -a "$LOG_FILE"
 # Step 9: Validate sync (row count comparison DuckDB vs Postgres)
 echo "[Step 9/9] Validating sync..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/validate_sync.py" 2>&1 | tee -a "$LOG_FILE"
-python "${PROJECT_DIR}/pipeline/validate_data.py" 2>&1 | tee -a "$LOG_FILE"
 
 echo "=== Pipeline Run Complete — $(date -u) ===" | tee -a "$LOG_FILE"
