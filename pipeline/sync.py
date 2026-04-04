@@ -237,6 +237,10 @@ def sync_inspection_detail(duck, conn, pipeline_run_id):
 
         print(f"Syncing {len(viol_df):,} violation records...")
 
+        for col in ["gravity", "nr_instances"]:
+            if col in viol_df.columns:
+                viol_df[col] = viol_df[col].fillna(0).astype(int)
+
         cur.execute("TRUNCATE TABLE violation_detail")
         cur.execute("ALTER SEQUENCE violation_detail_id_seq RESTART WITH 1")
 
