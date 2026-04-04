@@ -90,20 +90,25 @@ trend_3yr AS (
     GROUP BY employer_id
 ),
 
--- WHD: aggregate wage/hour violations per employer (joined by name + state)
--- WHD doesn't go through Splink, so we match on normalized name + state
+-- WHD: aggregate wage/hour violations per employer_id (via shared Splink clusters)
+-- WHD records go through entity resolution with 'whd_' prefixed unique_ids,
+-- so they share cluster_ids with OSHA records for the same employer.
+whd_with_employer AS (
+    SELECT
+        w.*,
+        COALESCE(c.employer_id, 'whd_' || CAST(w.case_id AS VARCHAR)) AS employer_id
+    FROM {{ ref('whd_norm') }} w
+    LEFT JOIN cluster_map c ON 'whd_' || CAST(w.case_id AS VARCHAR) = c.unique_id
+),
 whd_agg AS (
     SELECT
-        name_normalized,
-        state,
+        employer_id,
         COUNT(DISTINCT case_id) AS whd_cases_5yr,
         SUM(backwages) AS whd_backwages_total,
         SUM(employees_violated) AS whd_ee_violated_total
-    FROM {{ ref('whd_norm') }}
+    FROM whd_with_employer
     WHERE findings_end_date >= CURRENT_DATE - INTERVAL '5 years'
-      AND name_normalized IS NOT NULL
-      AND LENGTH(name_normalized) > 1
-    GROUP BY name_normalized, state
+    GROUP BY employer_id
 ),
 
 -- Map employer names to parent companies via seed table
@@ -221,7 +226,7 @@ SELECT
     n.naics_title AS naics_description
 
 FROM employer_osha e
-LEFT JOIN whd_agg w ON e.name_normalized = w.name_normalized AND e.state = w.state
+LEFT JOIN whd_agg w ON e.employer_id = w.employer_id
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
 LEFT JOIN {{ ref('naics_2022') }} n ON e.naics_code = n.naics_code
