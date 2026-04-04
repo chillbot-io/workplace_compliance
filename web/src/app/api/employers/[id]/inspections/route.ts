@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { isValidUUID } from "@/lib/validate";
 
 const API_BASE = process.env.API_URL || "https://api.fastdol.com";
+const DEMO_API_KEY = process.env.DEMO_API_KEY || "";
 
 export async function GET(
   _req: NextRequest,
@@ -16,14 +17,18 @@ export async function GET(
 
   const cookieStore = await cookies();
   const jwt = cookieStore.get("access_token")?.value;
-  if (!jwt) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const headers: Record<string, string> = {};
+  if (jwt) {
+    headers["Cookie"] = `access_token=${jwt}`;
+  } else if (DEMO_API_KEY) {
+    headers["X-Api-Key"] = DEMO_API_KEY;
+  } else {
+    return NextResponse.json({ error: "Not available" }, { status: 401 });
   }
 
   try {
-    const res = await fetch(`${API_BASE}/v1/employers/${id}/inspections`, {
-      headers: { Cookie: `access_token=${jwt}` },
-    });
+    const res = await fetch(`${API_BASE}/v1/employers/${id}/inspections?limit=100`, { headers });
     if (!res.ok) {
       return NextResponse.json({ error: "Failed to load inspections" }, { status: res.status });
     }
