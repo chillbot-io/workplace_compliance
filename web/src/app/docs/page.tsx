@@ -8,20 +8,20 @@ export const metadata: Metadata = {
 export default function DocsPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-12">
-      <h1 className="text-3xl font-bold text-gray-900 mb-4">API Documentation</h1>
+      <h1 className="text-3xl font-bold text-white mb-4">API Documentation</h1>
 
       <div className="flex gap-4 mb-8">
         <a href="https://api.fastdol.com/docs" target="_blank" rel="noopener noreferrer"
-          className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
+          className="rounded-md bg-rose-500/10 border border-rose-500/20 px-4 py-2 text-sm font-medium text-rose-400 hover:bg-rose-500/20">
           Interactive API (Swagger)
         </a>
         <a href="https://api.fastdol.com/redoc" target="_blank" rel="noopener noreferrer"
-          className="rounded-md bg-gray-50 border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100">
+          className="rounded-md bg-slate-800/50 border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700">
           API Reference (ReDoc)
         </a>
       </div>
 
-      <div className="prose prose-gray max-w-none">
+      <div className="prose prose-invert max-w-none prose-headings:text-white prose-p:text-slate-300 prose-li:text-slate-300 prose-strong:text-white prose-a:text-rose-500 prose-code:text-slate-300 prose-td:text-slate-300 prose-th:text-slate-400">
         <h2 id="getting-started">Getting Started</h2>
         <ol>
           <li><a href="/signup">Create a free account</a> (50 lookups/month, no credit card)</li>
@@ -42,47 +42,47 @@ export default function DocsPage() {
         <h2 id="endpoints">Endpoints</h2>
 
         <h3>Search Employers</h3>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`GET /v1/employers?name=walmart&state=ID&zip=83669&limit=20&offset=0`}
         </pre>
         <p><strong>Parameters:</strong></p>
         <table className="w-full text-sm">
-          <thead><tr className="border-b"><th className="text-left py-2">Param</th><th className="text-left py-2">Type</th><th className="text-left py-2">Description</th></tr></thead>
+          <thead><tr className="border-b border-slate-700"><th className="text-left py-2">Param</th><th className="text-left py-2">Type</th><th className="text-left py-2">Description</th></tr></thead>
           <tbody>
-            <tr className="border-b"><td className="py-2"><code>name</code></td><td>string</td><td>Employer name (fuzzy match)</td></tr>
-            <tr className="border-b"><td className="py-2"><code>ein</code></td><td>string</td><td>Exact EIN match</td></tr>
-            <tr className="border-b"><td className="py-2"><code>state</code></td><td>string</td><td>2-letter state code</td></tr>
-            <tr className="border-b"><td className="py-2"><code>zip</code></td><td>string</td><td>5-digit ZIP code</td></tr>
-            <tr className="border-b"><td className="py-2"><code>naics</code></td><td>string</td><td>4-digit NAICS prefix</td></tr>
-            <tr className="border-b"><td className="py-2"><code>limit</code></td><td>int</td><td>Results per page (1-100, default 20)</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2"><code>name</code></td><td>string</td><td>Employer name (fuzzy match)</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2"><code>ein</code></td><td>string</td><td>Exact EIN match</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2"><code>state</code></td><td>string</td><td>2-letter state code</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2"><code>zip</code></td><td>string</td><td>5-digit ZIP code</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2"><code>naics</code></td><td>string</td><td>4-digit NAICS prefix</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2"><code>limit</code></td><td>int</td><td>Results per page (1-100, default 20)</td></tr>
             <tr><td className="py-2"><code>offset</code></td><td>int</td><td>Pagination offset</td></tr>
           </tbody>
         </table>
 
         <h3>Get Employer Detail</h3>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`GET /v1/employers/{employer_id}`}
         </pre>
 
         <h3>Inspection History</h3>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`GET /v1/employers/{employer_id}/inspections?limit=20&offset=0`}
         </pre>
         <p>Free — not counted against your quota.</p>
 
         <h3>Risk History</h3>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`GET /v1/employers/{employer_id}/risk-history?limit=90`}
         </pre>
 
         <h3>Parent Company Rollup</h3>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`GET /v1/employers/parent?name=Amazon&state=CA`}
         </pre>
         <p>Aggregate risk across all locations of a parent company.</p>
 
         <h3>Batch Lookup</h3>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`POST /v1/employers/batch
 Content-Type: application/json
 
@@ -97,7 +97,7 @@ Content-Type: application/json
         <p>Up to 100 items per request. Each item can include <code>name</code>, <code>ein</code>, <code>employer_id</code>, <code>state</code>, <code>zip</code>, <code>city</code>.</p>
 
         <h3>CSV Upload</h3>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`POST /v1/employers/upload-csv
 Content-Type: multipart/form-data
 
@@ -106,13 +106,13 @@ file: employers.csv`}
         <p>Upload a CSV with employer names. Returns a CSV with risk profiles appended. Max 500 rows, 5MB.</p>
 
         <h3>Industry Benchmarks</h3>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`GET /v1/industries/4451
 GET /v1/industries/naics-codes`}
         </pre>
 
         <h2 id="response-format">Response Format</h2>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`{
   "results": [
     {
@@ -162,7 +162,7 @@ GET /v1/industries/naics-codes`}
         <p>100 requests per minute per API key. If exceeded, you will receive a 429 response. Wait and retry.</p>
 
         <h2 id="errors">Errors</h2>
-        <pre className="bg-gray-50 rounded-lg p-4 overflow-x-auto text-sm">
+        <pre className="bg-slate-800 border border-slate-600 rounded-lg p-4 overflow-x-auto text-sm text-slate-300">
 {`{
   "detail": {
     "error": "error_code",
@@ -171,13 +171,13 @@ GET /v1/industries/naics-codes`}
 }`}
         </pre>
         <table className="w-full text-sm">
-          <thead><tr className="border-b"><th className="text-left py-2">Status</th><th className="text-left py-2">Meaning</th></tr></thead>
+          <thead><tr className="border-b border-slate-700"><th className="text-left py-2">Status</th><th className="text-left py-2">Meaning</th></tr></thead>
           <tbody>
-            <tr className="border-b"><td className="py-2">400</td><td>Bad request (missing params)</td></tr>
-            <tr className="border-b"><td className="py-2">401</td><td>Invalid or missing API key</td></tr>
-            <tr className="border-b"><td className="py-2">403</td><td>Insufficient scope</td></tr>
-            <tr className="border-b"><td className="py-2">404</td><td>No results found</td></tr>
-            <tr className="border-b"><td className="py-2">429</td><td>Rate limit or quota exceeded</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2">400</td><td>Bad request (missing params)</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2">401</td><td>Invalid or missing API key</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2">403</td><td>Insufficient scope</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2">404</td><td>No results found</td></tr>
+            <tr className="border-b border-slate-700/50"><td className="py-2">429</td><td>Rate limit or quota exceeded</td></tr>
             <tr><td className="py-2">503</td><td>Service temporarily unavailable</td></tr>
           </tbody>
         </table>

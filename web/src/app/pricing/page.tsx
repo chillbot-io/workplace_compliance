@@ -10,22 +10,22 @@ const plans = [
   {
     tier: "Free", price: "$0", period: "forever", lookups: "50", perLookup: "—",
     features: ["50 lookups/month", "Single employer search", "Risk tier & score", "API access"],
-    cta: "Get Started", ctaStyle: "bg-gray-100 text-gray-700 hover:bg-gray-200",
+    cta: "Get Started", ctaStyle: "bg-slate-700 text-slate-300 hover:bg-slate-600",
   },
   {
     tier: "Starter", price: "$79", period: "/month", lookups: "1,000", perLookup: "$0.079",
     features: ["1,000 lookups/month", "Batch lookup (up to 100)", "CSV bulk upload", "Match confidence scores", "Email support"],
-    cta: "Start Free Trial", ctaStyle: "bg-gray-100 text-gray-700 hover:bg-gray-200",
+    cta: "Start Free Trial", ctaStyle: "bg-slate-700 text-slate-300 hover:bg-slate-600",
   },
   {
     tier: "Growth", price: "$249", period: "/month", lookups: "5,000", perLookup: "$0.050",
     features: ["5,000 lookups/month", "Everything in Starter", "Parent company rollups", "Risk history & trends", "Priority support"],
-    cta: "Start Free Trial", ctaStyle: "bg-blue-600 text-white hover:bg-blue-700", popular: true,
+    cta: "Start Free Trial", ctaStyle: "bg-rose-500 text-white hover:bg-rose-600", popular: true,
   },
   {
     tier: "Pro", price: "$599", period: "/month", lookups: "25,000", perLookup: "$0.024",
     features: ["25,000 lookups/month", "Everything in Growth", "Dedicated account manager", "Custom integrations", "SLA guarantee"],
-    cta: "Start Free Trial", ctaStyle: "bg-gray-100 text-gray-700 hover:bg-gray-200",
+    cta: "Start Free Trial", ctaStyle: "bg-slate-700 text-slate-300 hover:bg-slate-600",
   },
 ];
 
@@ -42,8 +42,8 @@ export default function PricingPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16">
       <div className="text-center mb-12">
-        <h1 className="text-3xl font-bold text-gray-900">Simple, transparent pricing</h1>
-        <p className="mt-4 text-lg text-gray-600">Start free. Scale as you grow.</p>
+        <h1 className="text-3xl font-bold text-white">Simple, transparent pricing</h1>
+        <p className="mt-4 text-lg text-slate-400">Start free. Scale as you grow.</p>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
@@ -51,26 +51,26 @@ export default function PricingPage() {
           <div
             key={plan.tier}
             className={`rounded-lg border p-6 flex flex-col ${
-              plan.popular ? "border-blue-600 ring-2 ring-blue-600" : "border-gray-200"
-            }`}
+              plan.popular ? "border-rose-500 ring-2 ring-rose-500" : "border-slate-700"
+            } bg-slate-800/50`}
           >
             {plan.popular && (
-              <div className="text-xs font-semibold text-blue-600 mb-2">MOST POPULAR</div>
+              <div className="text-xs font-semibold text-rose-500 mb-2">MOST POPULAR</div>
             )}
-            <div className="text-sm font-medium text-gray-500">{plan.tier}</div>
+            <div className="text-sm font-medium text-slate-400">{plan.tier}</div>
             <div className="mt-2">
-              <span className="text-4xl font-bold text-gray-900">{plan.price}</span>
-              <span className="text-sm text-gray-500">{plan.period}</span>
+              <span className="text-4xl font-bold text-white">{plan.price}</span>
+              <span className="text-sm text-slate-500">{plan.period}</span>
             </div>
-            <div className="text-sm text-gray-500 mt-2">
+            <div className="text-sm text-slate-400 mt-2">
               {plan.lookups} lookups/mo
               {plan.perLookup !== "—" && <span className="text-xs ml-1">({plan.perLookup}/lookup)</span>}
             </div>
 
             <ul className="mt-6 space-y-3 flex-1">
               {plan.features.map((f) => (
-                <li key={f} className="flex items-start gap-2 text-sm text-gray-600">
-                  <svg className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <li key={f} className="flex items-start gap-2 text-sm text-slate-300">
+                  <svg className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
                   {f}
@@ -89,23 +89,23 @@ export default function PricingPage() {
       </div>
 
       {/* Enterprise */}
-      <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center mb-16">
-        <h2 className="text-xl font-bold text-gray-900">Enterprise</h2>
-        <p className="text-gray-600 mt-2">Unlimited lookups, custom SLAs, data licensing, dedicated support.</p>
+      <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-8 text-center mb-16">
+        <h2 className="text-xl font-bold text-white">Enterprise</h2>
+        <p className="text-slate-300 mt-2">Unlimited lookups, custom SLAs, data licensing, dedicated support.</p>
         <a href="mailto:enterprise@fastdol.com"
-          className="mt-4 inline-block rounded-md bg-gray-900 px-6 py-2.5 text-sm font-medium text-white hover:bg-gray-800">
+          className="mt-4 inline-block rounded-md bg-rose-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-rose-600">
           Contact Sales
         </a>
       </div>
 
       {/* FAQ */}
       <div className="max-w-3xl mx-auto">
-        <h2 className="text-2xl font-bold text-gray-900 text-center mb-8">Frequently asked questions</h2>
+        <h2 className="text-2xl font-bold text-white text-center mb-8">Frequently asked questions</h2>
         <div className="space-y-6">
           {faqs.map((faq) => (
             <div key={faq.q}>
-              <h3 className="font-semibold text-gray-900">{faq.q}</h3>
-              <p className="mt-2 text-sm text-gray-600">{faq.a}</p>
+              <h3 className="font-semibold text-white">{faq.q}</h3>
+              <p className="mt-2 text-sm text-slate-400">{faq.a}</p>
             </div>
           ))}
         </div>

@@ -7,9 +7,9 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-12 prose prose-gray">
+    <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-12 prose prose-invert prose-headings:text-white prose-p:text-slate-300 prose-li:text-slate-300 prose-strong:text-white prose-a:text-rose-500">
       <h1>Terms of Service</h1>
-      <p className="text-sm text-gray-500">Last updated: April 2026</p>
+      <p className="text-sm text-slate-500">Last updated: April 2026</p>
 
       <h2>1. Service Description</h2>
       <p>FastDOL provides access to aggregated federal workplace enforcement data through a web interface and API. Data is sourced from publicly available government records including OSHA and WHD enforcement data.</p>
