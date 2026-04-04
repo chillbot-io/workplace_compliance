@@ -31,92 +31,299 @@ async def search_employers(
     key_row=Depends(check_scope("employer:read")),
     name: str | None = Query(None, description="Fuzzy employer name search"),
     ein: str | None = Query(None, description="Exact EIN match"),
-    address: str | None = Query(None, description="Free-text address"),
     state: str | None = Query(None, description="State code filter (e.g., CA)"),
-    naics: str | None = Query(None, description="4-digit NAICS filter"),
-    limit: int = Query(10, ge=1, le=50),
+    zip: str | None = Query(None, description="5-digit zip code filter"),
+    naics: str | None = Query(None, description="4-digit NAICS prefix filter"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
-    """Search employers by name, EIN, address, state, or NAICS."""
-    if not any([name, ein, address]):
+    """Search employers by name, EIN, zip, state, or NAICS.
+
+    Returns a flat list of employer locations sorted by risk score (worst first).
+    Each result includes `related_locations_count` showing how many locations
+    share the same normalized employer name — useful for national chains.
+    """
+    if not any([name, ein]):
         raise HTTPException(400, detail={
             "error": "missing_query",
-            "message": "Provide at least one of: name, ein, or address.",
+            "message": "Provide at least one of: name or ein.",
         })
 
     await check_monthly_quota(key_row)
 
     async with get_pool().acquire() as con:
-        # EIN exact match — highest priority
+        # EIN exact match — highest priority, skip fuzzy
         if ein:
-            rows = await con.fetch("""
-                SELECT DISTINCT ON (employer_id) *
-                FROM employer_profile
-                WHERE ein = $1
-                ORDER BY employer_id, snapshot_date DESC
-                LIMIT $2
-            """, ein, limit)
+            params = [ein]
+            param_idx = 2
+            where_clauses = ["ein = $1"]
+
+            if state:
+                where_clauses.append(f"state = ${param_idx}")
+                params.append(state.upper())
+                param_idx += 1
+            if zip:
+                where_clauses.append(f"zip = ${param_idx}")
+                params.append(zip.strip()[:5])
+                param_idx += 1
+
+            where_sql = " AND ".join(where_clauses)
+
+            count = await con.fetchval(f"""
+                SELECT COUNT(*) FROM (
+                    SELECT DISTINCT ON (employer_id) employer_id
+                    FROM employer_profile
+                    WHERE {where_sql}
+                    ORDER BY employer_id, snapshot_date DESC
+                ) sub
+            """, *params)
+
+            rows = await con.fetch(f"""
+                SELECT * FROM (
+                    SELECT DISTINCT ON (employer_id) *
+                    FROM employer_profile
+                    WHERE {where_sql}
+                    ORDER BY employer_id, snapshot_date DESC
+                ) sub
+                ORDER BY risk_score DESC NULLS LAST
+                LIMIT ${param_idx} OFFSET ${param_idx + 1}
+            """, *params, limit, offset)
 
             if rows:
                 await record_usage(key_row, "/v1/employers")
                 headers = await get_quota_headers(key_row)
                 return JSONResponse(
-                    content=_format_search_response(rows),
+                    content=_format_results(rows, count, limit, offset),
                     headers=headers,
                 )
 
-        # Name fuzzy search with pg_trgm
+        # Name fuzzy search with pg_trgm + optional filters
         if name:
-            query = """
-                SELECT DISTINCT ON (employer_id) *,
-                       similarity(employer_name, $1) AS sim_score
-                FROM employer_profile
-                WHERE similarity(employer_name, $1) > 0.2
-            """
             params = [name]
             param_idx = 2
+            filter_clauses = []
 
             if state:
-                query += f" AND state = ${param_idx}"
+                filter_clauses.append(f"state = ${param_idx}")
                 params.append(state.upper())
                 param_idx += 1
-
+            if zip:
+                filter_clauses.append(f"zip = ${param_idx}")
+                params.append(zip.strip()[:5])
+                param_idx += 1
             if naics:
-                query += f" AND naics_code LIKE ${param_idx}"
+                filter_clauses.append(f"naics_code LIKE ${param_idx}")
                 params.append(f"{naics}%")
                 param_idx += 1
 
-            query += f"""
-                ORDER BY employer_id, snapshot_date DESC
-            """
+            extra_where = (" AND " + " AND ".join(filter_clauses)) if filter_clauses else ""
 
-            # Wrap to sort by similarity
-            query = f"""
-                SELECT * FROM ({query}) sub
-                ORDER BY sim_score DESC
-                LIMIT ${param_idx}
-            """
-            params.append(limit)
+            # Use lower threshold for short names (< 6 chars get penalized by pg_trgm)
+            sim_threshold = 0.1 if len(name) < 6 else 0.15
 
-            rows = await con.fetch(query, *params)
+            # Count total matches
+            count = await con.fetchval(f"""
+                SELECT COUNT(*) FROM (
+                    SELECT DISTINCT ON (employer_id) employer_id
+                    FROM employer_profile
+                    WHERE similarity(employer_name, $1) > {sim_threshold}{extra_where}
+                    ORDER BY employer_id, snapshot_date DESC
+                ) sub
+            """, *params)
+
+            # Fetch page of results sorted by risk_score desc
+            rows = await con.fetch(f"""
+                SELECT * FROM (
+                    SELECT DISTINCT ON (employer_id) *,
+                           similarity(employer_name, $1) AS sim_score
+                    FROM employer_profile
+                    WHERE similarity(employer_name, $1) > {sim_threshold}{extra_where}
+                    ORDER BY employer_id, snapshot_date DESC
+                ) sub
+                ORDER BY risk_score DESC NULLS LAST
+                LIMIT ${param_idx} OFFSET ${param_idx + 1}
+            """, *params, limit, offset)
 
             if not rows:
-                raise HTTPException(404, detail={
-                    "error": "no_results",
-                    "message": f'No employers found matching "{name}".',
-                })
+                # Don't charge quota for zero-result searches
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": "no_results",
+                        "message": f'No employers found matching "{name}".',
+                        "suggestions": [
+                            "Try a shorter or simpler name (e.g., 'walmart' instead of 'walmart inc')",
+                            "Check spelling",
+                            "Remove zip/state filters to broaden the search",
+                        ],
+                    },
+                )
 
             await record_usage(key_row, "/v1/employers")
             headers = await get_quota_headers(key_row)
             return JSONResponse(
-                content=_format_search_response(rows),
+                content=_format_results(rows, count, limit, offset),
                 headers=headers,
             )
 
-        # Address-only search (fallback to name-based if no name given)
         raise HTTPException(400, detail={
-            "error": "not_implemented",
-            "message": "Address-only search requires name parameter as well.",
+            "error": "missing_query",
+            "message": "Provide at least one of: name or ein.",
         })
+
+
+## --- Parent Company Rollup ---
+
+@router.get("/employers/parent")
+async def get_parent_company(
+    key_row=Depends(check_scope("employer:read")),
+    name: str = Query(..., description="Parent company name (e.g., 'Amazon', 'Walmart')"),
+    state: str | None = Query(None, description="Filter locations by state"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """Parent company risk rollup — aggregate risk across all locations.
+
+    Returns company-wide statistics (total inspections, violations, penalties,
+    risk distribution) plus a paginated list of individual locations sorted
+    by risk score (worst first).
+
+    Premium feature for enterprise customers evaluating national employers.
+    """
+    await check_monthly_quota(key_row)
+    parent_name = name  # rename for clarity in queries
+
+    async with get_pool().acquire() as con:
+        # Build filter
+        params = [parent_name]
+        param_idx = 2
+        extra_where = ""
+
+        if state:
+            extra_where = f" AND state = ${param_idx}"
+            params.append(state.upper())
+            param_idx += 1
+
+        # Check parent exists (exact match first)
+        total_locations = await con.fetchval(f"""
+            SELECT COUNT(DISTINCT employer_id)
+            FROM employer_profile
+            WHERE parent_name = $1{extra_where}
+              AND snapshot_date = (SELECT MAX(snapshot_date) FROM employer_profile)
+        """, *params)
+
+        if not total_locations:
+            # Fall back to fuzzy name match
+            total_locations = await con.fetchval(f"""
+                SELECT COUNT(DISTINCT employer_id)
+                FROM employer_profile
+                WHERE similarity(parent_name, $1) > 0.5{extra_where}
+                  AND snapshot_date = (SELECT MAX(snapshot_date) FROM employer_profile)
+            """, *params)
+
+            if not total_locations:
+                raise HTTPException(404, detail={
+                    "error": "parent_not_found",
+                    "message": f'No parent company found matching "{parent_name}".',
+                })
+
+            name_filter = "similarity(parent_name, $1) > 0.5"
+        else:
+            name_filter = "parent_name = $1"
+
+        # Aggregate stats across all locations
+        agg = await con.fetchrow(f"""
+            SELECT
+                COUNT(DISTINCT employer_id) AS total_locations,
+                SUM(osha_inspections_5yr) AS total_inspections_5yr,
+                SUM(osha_violations_5yr) AS total_violations_5yr,
+                SUM(osha_total_penalties) AS total_penalties_5yr,
+                AVG(risk_score) AS avg_risk_score,
+                MAX(risk_score) AS max_risk_score,
+                MIN(risk_score) AS min_risk_score,
+                SUM(CASE WHEN risk_tier = 'HIGH' THEN 1 ELSE 0 END) AS high_count,
+                SUM(CASE WHEN risk_tier = 'ELEVATED' THEN 1 ELSE 0 END) AS elevated_count,
+                SUM(CASE WHEN risk_tier = 'MEDIUM' THEN 1 ELSE 0 END) AS medium_count,
+                SUM(CASE WHEN risk_tier = 'LOW' THEN 1 ELSE 0 END) AS low_count,
+                SUM(CASE WHEN trend_signal = 'WORSENING' THEN 1 ELSE 0 END) AS worsening_count,
+                SUM(CASE WHEN trend_signal = 'IMPROVING' THEN 1 ELSE 0 END) AS improving_count
+            FROM (
+                SELECT DISTINCT ON (employer_id) *
+                FROM employer_profile
+                WHERE {name_filter}{extra_where}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+        """, *params)
+
+        # States breakdown
+        states = await con.fetch(f"""
+            SELECT state, COUNT(DISTINCT employer_id) AS location_count
+            FROM (
+                SELECT DISTINCT ON (employer_id) employer_id, state
+                FROM employer_profile
+                WHERE {name_filter}{extra_where}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+            WHERE state IS NOT NULL
+            GROUP BY state
+            ORDER BY location_count DESC
+        """, *params)
+
+        # Paginated locations sorted by risk score (worst first)
+        locations = await con.fetch(f"""
+            SELECT * FROM (
+                SELECT DISTINCT ON (employer_id) *
+                FROM employer_profile
+                WHERE {name_filter}{extra_where}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+            ORDER BY risk_score DESC NULLS LAST
+            LIMIT ${param_idx} OFFSET ${param_idx + 1}
+        """, *params, limit, offset)
+
+    await record_usage(key_row, "/v1/employers/parent/{{name}}")
+    headers = await get_quota_headers(key_row)
+
+    agg_dict = dict(agg) if agg else {}
+
+    return JSONResponse(
+        content=json.loads(json.dumps({
+            "parent_name": parent_name,
+            "total_locations": agg_dict.get("total_locations", 0),
+            "aggregate": {
+                "total_inspections_5yr": agg_dict.get("total_inspections_5yr", 0),
+                "total_violations_5yr": agg_dict.get("total_violations_5yr", 0),
+                "total_penalties_5yr": agg_dict.get("total_penalties_5yr", 0),
+                "avg_risk_score": round(agg_dict.get("avg_risk_score") or 0, 1),
+                "max_risk_score": agg_dict.get("max_risk_score", 0),
+                "min_risk_score": agg_dict.get("min_risk_score", 0),
+                "risk_distribution": {
+                    "HIGH": agg_dict.get("high_count", 0),
+                    "ELEVATED": agg_dict.get("elevated_count", 0),
+                    "MEDIUM": agg_dict.get("medium_count", 0),
+                    "LOW": agg_dict.get("low_count", 0),
+                },
+                "trend_distribution": {
+                    "WORSENING": agg_dict.get("worsening_count", 0),
+                    "IMPROVING": agg_dict.get("improving_count", 0),
+                    "STABLE": (agg_dict.get("total_locations", 0)
+                               - agg_dict.get("worsening_count", 0)
+                               - agg_dict.get("improving_count", 0)),
+                },
+            },
+            "states": [
+                {"state": dict(s)["state"], "location_count": dict(s)["location_count"]}
+                for s in states
+            ],
+            "locations": {
+                "results": [_format_employer(r) for r in locations],
+                "total_count": agg_dict.get("total_locations", 0),
+                "limit": limit,
+                "offset": offset,
+            },
+        }, cls=CustomEncoder)),
+        headers=headers,
+    )
 
 
 @router.get("/employers/{employer_id}")
@@ -204,11 +411,19 @@ def _format_employer(row) -> dict:
     """Format a database row into the API response shape."""
     r = dict(row)
     # Remove internal fields
-    for key in ["sim_score", "created_at", "updated_at", "pipeline_run_id"]:
+    for key in ["sim_score", "created_at", "updated_at", "pipeline_run_id", "name_normalized"]:
         r.pop(key, None)
 
     # Roundtrip through custom encoder to handle Decimal, UUID, dates
-    return json.loads(json.dumps(r, cls=CustomEncoder))
+    result = json.loads(json.dumps(r, cls=CustomEncoder))
+
+    # Add context for risk scores
+    inspections = result.get("osha_inspections_5yr", 0) or 0
+    risk_score = result.get("risk_score", 0) or 0
+    if inspections == 0 and risk_score == 0:
+        result["risk_note"] = "No OSHA inspections in the last 5 years. This does not mean the employer is violation-free — OSHA inspects a small fraction of workplaces annually."
+
+    return result
 
 
 ## --- Batch Lookup ---
@@ -217,6 +432,12 @@ class BatchLookupItem(BaseModel):
     name: str | None = None
     ein: str | None = None
     employer_id: str | None = None
+    state: str | None = None
+    zip: str | None = None
+    city: str | None = None
+
+    class Config:
+        str_max_length = 200
 
 
 class BatchLookupRequest(BaseModel):
@@ -224,7 +445,7 @@ class BatchLookupRequest(BaseModel):
 
 
 BATCH_MAX = 500
-BATCH_SYNC_LIMIT = 25
+BATCH_SYNC_LIMIT = 100
 
 
 @router.post("/employers/batch")
@@ -232,7 +453,17 @@ async def batch_lookup(
     body: BatchLookupRequest,
     key_row=Depends(check_scope("batch:write")),
 ):
-    """Batch employer lookup. <=25 sync, >25 async (not yet implemented), max 500."""
+    """Batch employer lookup — designed for spreadsheet-style bulk searches.
+
+    Each item can include name, ein, employer_id, plus optional location
+    filters (state, zip, city) to narrow to a specific site.
+
+    Up to 100 items processed synchronously. 101-500 returns a job_id
+    for async polling (coming soon). Max 500 items per request.
+
+    Typical usage: underwriter uploads a spreadsheet with company name +
+    address for each policy they're quoting.
+    """
     if len(body.lookups) > BATCH_MAX:
         raise HTTPException(422, detail={
             "error": "batch_too_large",
@@ -248,69 +479,134 @@ async def batch_lookup(
     await check_monthly_quota(key_row)
 
     if len(body.lookups) > BATCH_SYNC_LIMIT:
-        # TODO: async batch with R2 storage and job polling
-        raise HTTPException(501, detail={
-            "error": "async_not_implemented",
-            "message": f"Batches over {BATCH_SYNC_LIMIT} items require async processing (coming soon). Use {BATCH_SYNC_LIMIT} or fewer for synchronous results.",
+        raise HTTPException(422, detail={
+            "error": "batch_too_large_for_sync",
+            "message": f"Batches over {BATCH_SYNC_LIMIT} items are not yet supported. Split your request into chunks of {BATCH_SYNC_LIMIT} or fewer.",
+            "your_count": len(body.lookups),
+            "max_sync": BATCH_SYNC_LIMIT,
+            "tip": "For larger batches, use POST /v1/employers/upload-csv which supports up to 500 rows.",
         })
 
     results = []
     async with get_pool().acquire() as con:
         for item in body.lookups:
-            row = None
-
-            # Priority: employer_id > ein > name
-            if item.employer_id:
-                row = await con.fetchrow("""
-                    SELECT DISTINCT ON (employer_id) *
-                    FROM employer_profile
-                    WHERE employer_id = $1::uuid
-                    ORDER BY employer_id, snapshot_date DESC
-                """, item.employer_id)
-
-            elif item.ein:
-                row = await con.fetchrow("""
-                    SELECT DISTINCT ON (employer_id) *
-                    FROM employer_profile
-                    WHERE ein = $1
-                    ORDER BY employer_id, snapshot_date DESC
-                """, item.ein)
-
-            elif item.name:
-                row = await con.fetchrow("""
-                    SELECT * FROM (
-                        SELECT DISTINCT ON (employer_id) *,
-                               similarity(employer_name, $1) AS sim_score
-                        FROM employer_profile
-                        WHERE similarity(employer_name, $1) > 0.3
-                        ORDER BY employer_id, snapshot_date DESC
-                    ) sub
-                    ORDER BY sim_score DESC
-                    LIMIT 1
-                """, item.name)
-
-            if row:
-                results.append({
-                    "query": item.model_dump(exclude_none=True),
-                    "match": _format_employer(row),
-                })
-            else:
-                results.append({
-                    "query": item.model_dump(exclude_none=True),
-                    "match": None,
-                })
+            match = await _resolve_batch_item(item, con)
+            results.append({
+                "query": item.model_dump(exclude_none=True),
+                "match": _format_employer(match) if match else None,
+                "confidence": _match_confidence(match) if match else None,
+            })
 
     await record_usage(key_row, "/v1/employers/batch", count=len(body.lookups))
     headers = await get_quota_headers(key_row)
 
     return JSONResponse(
         content={
-            "data": results,
+            "results": results,
             "total": len(results),
             "matched": sum(1 for r in results if r["match"]),
+            "unmatched": sum(1 for r in results if not r["match"]),
         },
         headers=headers,
     )
+
+
+async def _resolve_batch_item(item: BatchLookupItem, con) -> dict | None:
+    """Resolve a single batch item to the best employer match.
+
+    Priority: employer_id (exact) > ein (exact) > name (fuzzy + location filters).
+    Location filters (state, zip, city) narrow name matches to a specific site.
+    """
+    # Direct ID lookup — no ambiguity
+    if item.employer_id:
+        return await con.fetchrow("""
+            SELECT DISTINCT ON (employer_id) *
+            FROM employer_profile
+            WHERE employer_id = $1::uuid
+            ORDER BY employer_id, snapshot_date DESC
+        """, item.employer_id)
+
+    # EIN exact match — may have multiple locations, use location to pick best
+    if item.ein:
+        params = [item.ein]
+        param_idx = 2
+        filters = []
+
+        if item.state:
+            filters.append(f"state = ${param_idx}")
+            params.append(item.state.upper().strip())
+            param_idx += 1
+        if item.zip:
+            filters.append(f"zip = ${param_idx}")
+            params.append(item.zip.strip()[:5])
+            param_idx += 1
+
+        extra = (" AND " + " AND ".join(filters)) if filters else ""
+
+        return await con.fetchrow(f"""
+            SELECT * FROM (
+                SELECT DISTINCT ON (employer_id) *
+                FROM employer_profile
+                WHERE ein = $1{extra}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+            ORDER BY risk_score DESC NULLS LAST
+            LIMIT 1
+        """, *params)
+
+    # Name fuzzy match with location narrowing
+    if item.name:
+        params = [item.name]
+        param_idx = 2
+        filters = []
+
+        if item.state:
+            filters.append(f"state = ${param_idx}")
+            params.append(item.state.upper().strip())
+            param_idx += 1
+        if item.zip:
+            filters.append(f"zip = ${param_idx}")
+            params.append(item.zip.strip()[:5])
+            param_idx += 1
+        if item.city:
+            # Use similarity for city to handle spelling variations
+            filters.append(f"similarity(city, ${param_idx}) > 0.4")
+            params.append(item.city.upper().strip())
+            param_idx += 1
+
+        extra = (" AND " + " AND ".join(filters)) if filters else ""
+
+        # When location filters are present, use a tighter name threshold
+        # and rank by combined name similarity + location match
+        name_threshold = 0.3 if filters else 0.3
+
+        return await con.fetchrow(f"""
+            SELECT * FROM (
+                SELECT DISTINCT ON (employer_id) *,
+                       similarity(employer_name, $1) AS sim_score
+                FROM employer_profile
+                WHERE similarity(employer_name, $1) > {name_threshold}{extra}
+                ORDER BY employer_id, snapshot_date DESC
+            ) sub
+            ORDER BY sim_score DESC
+            LIMIT 1
+        """, *params)
+
+    return None
+
+
+def _match_confidence(row) -> str:
+    """Estimate match confidence based on how the match was found."""
+    if not row:
+        return None
+    sim = row.get("sim_score")
+    if sim is None:
+        return "exact"  # ID or EIN match
+    if sim > 0.8:
+        return "high"
+    if sim > 0.5:
+        return "medium"
+    return "low"
 
 
 ## --- Risk History ---
@@ -471,13 +767,17 @@ async def list_naics_codes(
 
 ## --- Helpers ---
 
-def _format_search_response(rows) -> dict:
-    """Format search results with match + possible_matches."""
-    if not rows:
-        return {"match": None, "possible_matches": []}
-
-    employers = [_format_employer(r) for r in rows]
+def _format_results(rows, total_count: int, limit: int, offset: int) -> dict:
+    """Format search results as a flat paginated list.
+    location_count is pre-computed in the pipeline (gold model)."""
     return {
-        "match": employers[0],
-        "possible_matches": employers[1:10],  # capped at 10
+        "results": [_format_employer(r) for r in rows],
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
+        "data_notes": {
+            "freshness": "OSHA citations typically appear 3-8 months after inspection date. WHD data updates monthly.",
+            "coverage": "Data includes OSHA inspections/violations and WHD wage enforcement actions since FY2005.",
+            "scoring": "Risk scores combine OSHA violation severity (willful, repeat, serious) and WHD back wages. See /v1/health for data age.",
+        },
     }

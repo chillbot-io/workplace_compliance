@@ -63,11 +63,15 @@ def run_deduplication():
     has_address_key = "address_key" in columns
 
     # Prepare the input table — one row per establishment with dedup fields
+    # Combines OSHA inspections + WHD enforcement actions for unified clustering
     address_key_select = "address_key" if has_address_key else "NULL AS address_key"
+
+    # OSHA records
     con.execute(f"""
         CREATE OR REPLACE TABLE er_input AS
         SELECT
-            activity_nr AS unique_id,
+            CAST(activity_nr AS VARCHAR) AS unique_id,
+            'OSHA' AS source,
             name_normalized,
             SUBSTR(name_normalized, 1, 4) AS name_prefix,
             zip5,
@@ -79,8 +83,35 @@ def run_deduplication():
           AND name_normalized != ''
     """)
 
+    osha_count = con.execute("SELECT COUNT(*) FROM er_input").fetchone()[0]
+    print(f"ER input (OSHA): {osha_count} records")
+
+    # WHD records — append if whd_norm exists
+    try:
+        whd_exists = con.execute("SELECT COUNT(*) FROM whd_norm").fetchone()[0]
+        if whd_exists > 0:
+            con.execute("""
+                INSERT INTO er_input
+                SELECT
+                    'whd_' || CAST(case_id AS VARCHAR) AS unique_id,
+                    'WHD' AS source,
+                    name_normalized,
+                    SUBSTR(name_normalized, 1, 4) AS name_prefix,
+                    zip5,
+                    state AS site_state,
+                    NULL AS naics_4digit,
+                    NULL AS address_key
+                FROM whd_norm
+                WHERE name_normalized IS NOT NULL
+                  AND name_normalized != ''
+            """)
+            whd_count = con.execute("SELECT COUNT(*) FROM er_input WHERE source = 'WHD'").fetchone()[0]
+            print(f"ER input (WHD):  {whd_count} records")
+    except Exception as e:
+        print(f"WHD data not available for ER ({e}) — OSHA only")
+
     er_count = con.execute("SELECT COUNT(*) FROM er_input").fetchone()[0]
-    print(f"ER input: {er_count} records (after filtering nulls)")
+    print(f"ER input total:  {er_count} records")
 
     # Configure Splink
     settings = SettingsCreator(
@@ -92,8 +123,10 @@ def run_deduplication():
         ],
         comparisons=[
             cl.ExactMatch("name_normalized"),
+            cl.ExactMatch("zip5"),
             cl.ExactMatch("naics_4digit"),
             cl.ExactMatch("site_state"),
+            cl.ExactMatch("address_key"),
         ],
         # Set prior probability — with 2.5M records, chance of random match is low
         probability_two_random_records_match=1e-5,

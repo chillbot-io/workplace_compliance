@@ -69,7 +69,7 @@ SOURCES = {
         "page_size": 1000,
         "fields": [
             "trade_nm", "legal_name", "street_addr_1_txt", "cty_nm",
-            "st_cd", "zip_cd", "naics_code_description",
+            "st_cd", "zip_cd", "naics_code_description", "naic_cd",
             "findings_start_date", "findings_end_date",
             "bw_atp_amt", "ee_violtd_cnt", "case_id",
         ],
@@ -126,9 +126,15 @@ def fetch_one_page(url: str, params: dict, source_name: str) -> tuple[list | Non
 
 
 def fetch_source(name: str, config: dict) -> pd.DataFrame:
-    """Fetch all records using burst strategy: BURST_SIZE requests, then cooldown."""
+    """Fetch all records using burst strategy: BURST_SIZE requests, then cooldown.
+
+    If a specific offset returns a persistent error (bad batch), it is skipped
+    and recorded for retry after the main pass completes. Skipped batches are
+    retried with smaller page sizes to recover as much data as possible.
+    """
     api_path = config["path"]
     url = f"{BASE_URL}/{api_path}/json"
+    page_size = config.get("page_size", PAGE_SIZE)
 
     existing_df = load_existing(name)
     all_records = existing_df.to_dict("records") if not existing_df.empty else []
@@ -136,6 +142,7 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
     total_fetched = len(all_records)
     last_checkpoint = total_fetched
     done = False
+    skipped_offsets = []  # bad batches to retry later
 
     print(f"[{name}] Fetching from offset {offset}...")
 
@@ -149,7 +156,7 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
         # Fire a burst of requests
         for _ in range(BURST_SIZE):
             params = {
-                "limit": config.get("page_size", PAGE_SIZE),
+                "limit": page_size,
                 "offset": offset,
                 "sort": "desc",
                 "sort_by": config.get("sort_by", "load_dt"),
@@ -172,10 +179,10 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             consecutive_failures = 0  # reset on any success
             all_records.extend(records)
             total_fetched += len(records)
-            offset += PAGE_SIZE
+            offset += page_size
             burst_count += 1
 
-            if len(records) < config.get("page_size", PAGE_SIZE):
+            if len(records) < page_size:
                 done = True
                 break
 
@@ -197,18 +204,52 @@ def fetch_source(name: str, config: dict) -> pd.DataFrame:
             break
         elif hit_limit_this_burst:
             consecutive_failures += 1
-            if consecutive_failures >= MAX_RETRIES:
-                print(f"[{name}] Too many consecutive failures ({consecutive_failures}), stopping")
-                done = True
+            if consecutive_failures >= 3:
+                # 3 consecutive failures at the same offset = bad batch, skip it
+                print(f"[{name}] Skipping bad batch at offset {offset} (will retry later)")
+                skipped_offsets.append(offset)
+                offset += page_size
+                consecutive_failures = 0
+                time.sleep(BURST_COOLDOWN)
             else:
                 wait = RATE_LIMIT_WAIT + (consecutive_failures * 30)  # escalating wait
-                print(f"[{name}] Rate limited, waiting {wait}s (attempt {consecutive_failures}/{MAX_RETRIES})...")
+                print(f"[{name}] Rate limited, waiting {wait}s (attempt {consecutive_failures}/3 before skip)...")
                 time.sleep(wait)
         else:
             print(f"[{name}] Cooldown {BURST_COOLDOWN}s...")
             time.sleep(BURST_COOLDOWN)
 
-    print(f"[{name}] Complete: {total_fetched} total records")
+    # Retry skipped batches with smaller page sizes
+    if skipped_offsets:
+        print(f"[{name}] Retrying {len(skipped_offsets)} skipped batch(es) with smaller pages...")
+        retry_page_size = max(100, page_size // 5)
+
+        for bad_offset in skipped_offsets:
+            recovered = 0
+            for sub_offset in range(bad_offset, bad_offset + page_size, retry_page_size):
+                params = {
+                    "limit": retry_page_size,
+                    "offset": sub_offset,
+                    "sort": "desc",
+                    "sort_by": config.get("sort_by", "load_dt"),
+                }
+                time.sleep(2)  # be gentle on retry
+                records, hit_limit = fetch_one_page(url, params, name)
+
+                if records:
+                    all_records.extend(records)
+                    total_fetched += len(records)
+                    recovered += len(records)
+                elif hit_limit:
+                    print(f"[{name}] Retry at offset {sub_offset} still failing, skipping chunk")
+                    time.sleep(BURST_COOLDOWN)
+
+            if recovered:
+                print(f"[{name}] Recovered {recovered} records from bad batch at offset {bad_offset}")
+            else:
+                print(f"[{name}] Could not recover batch at offset {bad_offset} — {retry_page_size}-record pages also failed")
+
+    print(f"[{name}] Complete: {total_fetched} total records ({len(skipped_offsets)} batches skipped)")
 
     if not all_records:
         return pd.DataFrame()
@@ -228,11 +269,18 @@ def save_parquet(df: pd.DataFrame, source_name: str):
 
 
 def main():
-    print(f"=== DOL Ingestion Starting — {TODAY} ===")
+    # Allow targeting specific source(s) via CLI: python ingest_dol.py whd_actions
+    requested = sys.argv[1:] if len(sys.argv) > 1 else list(SOURCES.keys())
+    for name in requested:
+        if name not in SOURCES:
+            print(f"ERROR: Unknown source '{name}'. Available: {', '.join(SOURCES.keys())}", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"=== DOL Ingestion Starting — {TODAY} ({', '.join(requested)}) ===")
     start_time = time.time()
     errors = []
 
-    source_list = list(SOURCES.items())
+    source_list = [(name, SOURCES[name]) for name in requested]
     for idx, (source_name, config) in enumerate(source_list):
         # Wait between sources to let rate limit fully reset
         if idx > 0:

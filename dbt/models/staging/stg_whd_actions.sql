@@ -1,3 +1,5 @@
+{{ config(materialized='view') }}
+
 -- Load raw WHD compliance actions from DuckDB bronze table
 -- v4 API column names differ from v2: cty_nm (not city_nm), bw_atp_amt (not bw_amt)
 SELECT

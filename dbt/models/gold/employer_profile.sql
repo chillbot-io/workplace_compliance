@@ -28,7 +28,7 @@ osha_with_employer AS (
         o.*,
         COALESCE(c.employer_id, CAST(o.activity_nr AS VARCHAR)) AS employer_id
     FROM osha o
-    LEFT JOIN cluster_map c ON o.activity_nr = c.unique_id
+    LEFT JOIN cluster_map c ON CAST(o.activity_nr AS VARCHAR) = CAST(c.unique_id AS VARCHAR)
 ),
 
 -- 5-year window
@@ -52,6 +52,7 @@ employer_osha AS (
         -- Use most common values for identity fields
         -- DuckDB: use ARG_MIN to get column value from the row with most recent inspection
         ARG_MIN(estab_name, -EXTRACT(EPOCH FROM open_date)) AS employer_name,
+        ARG_MIN(name_normalized, -EXTRACT(EPOCH FROM open_date)) AS name_normalized,
         ARG_MIN(site_address, -EXTRACT(EPOCH FROM open_date)) AS address,
         ARG_MIN(site_city, -EXTRACT(EPOCH FROM open_date)) AS city,
         ARG_MIN(site_state, -EXTRACT(EPOCH FROM open_date)) AS state,
@@ -70,6 +71,11 @@ employer_osha AS (
         AVG(avg_gravity) AS osha_avg_gravity
     FROM osha_5yr
     WHERE employer_id IS NOT NULL
+      -- Exclude junk records with no real employer name
+      AND name_normalized IS NOT NULL
+      AND name_normalized NOT IN ('UNKNOWN', 'UNKNOWN CONTRACTOR', 'UNKNOWN EMPLOYER',
+                                   'NA', 'NONE', 'TEST', 'TBD', 'NO NAME')
+      AND LENGTH(name_normalized) > 1
     GROUP BY employer_id
 ),
 
@@ -82,31 +88,112 @@ trend_3yr AS (
     SELECT employer_id, SUM(violation_count) AS violations_3yr
     FROM osha_3yr
     GROUP BY employer_id
+),
+
+-- WHD: aggregate wage/hour violations per employer_id (via shared Splink clusters)
+-- WHD records go through entity resolution with 'whd_' prefixed unique_ids,
+-- so they share cluster_ids with OSHA records for the same employer.
+whd_with_employer AS (
+    SELECT
+        w.*,
+        COALESCE(c.employer_id, 'whd_' || CAST(w.case_id AS VARCHAR)) AS employer_id
+    FROM {{ ref('whd_norm') }} w
+    LEFT JOIN cluster_map c ON 'whd_' || CAST(w.case_id AS VARCHAR) = c.unique_id
+),
+whd_agg AS (
+    SELECT
+        employer_id,
+        COUNT(DISTINCT case_id) AS whd_cases_5yr,
+        SUM(backwages) AS whd_backwages_total,
+        SUM(employees_violated) AS whd_ee_violated_total
+    FROM whd_with_employer
+    WHERE findings_end_date >= CURRENT_DATE - INTERVAL '5 years'
+    GROUP BY employer_id
+),
+
+-- Map employer names to parent companies via seed table
+-- Two strategies: exact match for SEC data (613k rows, fast hash join),
+-- prefix match for manual overrides (~55 rows, fast even with LIKE)
+parent_exact AS (
+    SELECT e.employer_id, pc.parent_name
+    FROM employer_osha e
+    INNER JOIN {{ ref('parent_companies') }} pc
+        ON e.name_normalized = pc.name_pattern
+        AND pc.match_type = 'exact'
+),
+parent_prefix AS (
+    SELECT e.employer_id, pc.parent_name
+    FROM employer_osha e
+    INNER JOIN {{ ref('parent_companies') }} pc
+        ON e.name_normalized LIKE pc.name_pattern || '%'
+        AND pc.match_type = 'prefix'
+),
+parent_match AS (
+    SELECT employer_id, parent_name FROM parent_exact
+    UNION ALL
+    SELECT employer_id, parent_name FROM parent_prefix
+    WHERE employer_id NOT IN (SELECT employer_id FROM parent_exact)
+),
+
+-- Count locations per parent (if matched) or per normalized name (if not)
+-- This gives "347 Walmart locations" instead of "12 WALMART STORE" locations
+location_counts AS (
+    SELECT
+        e.employer_id,
+        COALESCE(pm.parent_name, e.name_normalized) AS group_key,
+        COUNT(*) OVER (PARTITION BY COALESCE(pm.parent_name, e.name_normalized)) AS location_count
+    FROM employer_osha e
+    LEFT JOIN parent_match pm ON e.employer_id = pm.employer_id
 )
 
 SELECT
     e.*,
 
-    -- Risk tier
+    -- WHD fields (matched by name + state, may be NULL if no WHD data)
+    COALESCE(w.whd_cases_5yr, 0) AS whd_cases_5yr,
+    COALESCE(w.whd_backwages_total, 0) AS whd_backwages_total,
+    COALESCE(w.whd_ee_violated_total, 0) AS whd_ee_violated_total,
+
+    -- Parent company name (NULL if no parent match — this is a standalone employer)
+    pm.parent_name,
+
+    -- Related locations sharing same parent or normalized name
+    COALESCE(lc.location_count, 1) AS location_count,
+
+    -- Risk tier (combines OSHA + WHD signals)
     CASE
         WHEN COALESCE(e.osha_willful_count_5yr, 0) >= 1                    THEN 'HIGH'
         WHEN COALESCE(e.osha_repeat_count_5yr, 0) >= 3                     THEN 'HIGH'
         WHEN COALESCE(e.osha_penalty_total_5yr, 0) > 100000                THEN 'HIGH'
+        WHEN COALESCE(w.whd_backwages_total, 0) > 100000                   THEN 'HIGH'
+        WHEN COALESCE(w.whd_ee_violated_total, 0) > 100                    THEN 'HIGH'
         WHEN COALESCE(e.osha_inspections_5yr, 0) >= 5
              AND COALESCE(e.osha_violations_5yr, 0) >= 10                  THEN 'ELEVATED'
+        WHEN COALESCE(w.whd_cases_5yr, 0) >= 3
+             AND COALESCE(w.whd_backwages_total, 0) > 10000                THEN 'ELEVATED'
         WHEN COALESCE(e.osha_violations_5yr, 0) >= 10                      THEN 'MEDIUM'
         WHEN COALESCE(e.osha_inspections_5yr, 0) BETWEEN 2 AND 4           THEN 'MEDIUM'
         WHEN COALESCE(e.osha_violations_5yr, 0) BETWEEN 3 AND 9            THEN 'MEDIUM'
+        WHEN COALESCE(w.whd_cases_5yr, 0) >= 2                             THEN 'MEDIUM'
         ELSE 'LOW'
     END AS risk_tier,
 
-    -- Risk score (0-100 weighted sum)
+    -- Risk score (0-100 weighted sum, combines OSHA + WHD)
+    -- Weights based on OSHA's own penalty ratios:
+    --   Willful/Repeat max penalty = $165,514 (10x serious)
+    --   Serious max penalty = $16,550 (1x baseline)
+    --   Other = $16,550 but lower gravity
     LEAST(100, GREATEST(0,
-        COALESCE(e.osha_willful_count_5yr, 0) * 25
-      + COALESCE(e.osha_repeat_count_5yr, 0) * 10
-      + COALESCE(e.osha_serious_count_5yr, 0) * 5
-      + COALESCE(e.osha_other_count_5yr, 0) * 1
-      + LEAST(20, COALESCE(e.osha_penalty_total_5yr, 0) / 10000.0)
+        -- OSHA components (up to ~85 points)
+        LEAST(50, COALESCE(e.osha_willful_count_5yr, 0) * 30)
+      + LEAST(30, COALESCE(e.osha_repeat_count_5yr, 0) * 15)
+      + LEAST(20, COALESCE(e.osha_serious_count_5yr, 0) * 3)
+      + LEAST(5, COALESCE(e.osha_other_count_5yr, 0) * 0.5)
+      + LEAST(15, COALESCE(e.osha_penalty_total_5yr, 0) / 10000.0)
+        -- WHD components (up to ~15 points)
+      + LEAST(8, COALESCE(w.whd_backwages_total, 0) / 10000.0)
+      + LEAST(4, COALESCE(w.whd_cases_5yr, 0) * 1.5)
+      + LEAST(3, COALESCE(w.whd_ee_violated_total, 0) / 25.0)
     )) AS risk_score,
 
     -- Trend signal
@@ -143,6 +230,9 @@ SELECT
     n.naics_title AS naics_description
 
 FROM employer_osha e
+LEFT JOIN whd_agg w ON e.employer_id = w.employer_id
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
-LEFT JOIN naics_2022 n ON e.naics_code = n.naics_code
+LEFT JOIN {{ ref('naics_2022') }} n ON e.naics_code = n.naics_code
+LEFT JOIN parent_match pm ON e.employer_id = pm.employer_id
+LEFT JOIN location_counts lc ON e.employer_id = lc.employer_id

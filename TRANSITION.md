@@ -1,370 +1,209 @@
 # FastDOL Transition Document
 
-**Date:** April 3, 2026
+**Date:** April 4, 2026
+**Session:** Claude Code session_01Sp4DDSTfgDuwrNDvZQ45N6
 **Purpose:** Complete context transfer for continuing development
 
 ---
 
-## 1. What FastDOL Is
+## 1. What Was Done This Session
 
-FastDOL is a B2B API product that aggregates federal employer enforcement data (OSHA, WHD, MSHA, EPA, FMCSA) into normalized employer risk profiles. Customers query by employer name, EIN, or address and get back a structured compliance risk profile with risk tier, risk score, violation history, and trend signals.
+### Data Pipeline Fixes
+- **WHD offset bug fixed** — `ingest_dol.py` was incrementing offset by 5000 (global PAGE_SIZE) instead of 1000 (WHD page_size), skipping 4/5 of records
+- **Bad batch skip logic** — After 3 consecutive failures at same offset, skips ahead and retries with smaller page sizes at the end
+- **Added `--source` CLI filter** — `python ingest_dol.py whd_actions` runs just one source
+- **Added `naic_cd` to WHD fields** — was missing from ingestion
+- **WHD fully downloaded** — 354,965 records loaded into DuckDB
+- **WHD integrated into Splink** — entity resolution now clusters OSHA + WHD together (2.84M records)
+- **WHD integrated into risk scoring** — gold model combines OSHA violations + WHD back wages/employees violated
 
-**Target buyers:** Insurance underwriters, staffing/PEO firms, compliance consultants, supply chain teams.
+### Entity Resolution Improvements
+- **Added zip5 + address_key as Splink comparisons** — reduces duplicate profiles (was 10.7k dupes, now ~39)
+- **Post-Splink name merge** — clusters sharing same normalized name merged across states
+- **Clusters:** 1,538,088 → 1,132,995 after name merge
+- **Profiles:** 190,873 (down from 249k due to dedup + junk filtering)
 
-**Business model:** API-first with tiered pricing:
-- Free: $0, 50 lookups/mo
-- Starter: $79/mo, 1,000 lookups
-- Growth: $249/mo, 5,000 lookups  
-- Pro: $599/mo, 25,000 lookups
-- Enterprise: custom
+### Search & API Redesign
+- **Search endpoint** — added zip filter, pagination (offset/limit), flat results list, risk_score desc sort
+- **Lower similarity threshold** — 0.15 (0.1 for short names) to catch misspellings
+- **Zero-result searches** — don't charge quota, return suggestions
+- **Batch endpoint** — added state/zip/city filters, match confidence, sync limit 25→100
+- **CSV upload endpoint** — `POST /v1/employers/upload-csv`, accepts CSV, returns CSV with risk profiles
+- **Parent company rollup** — `GET /v1/employers/parent?name=Amazon`, aggregate risk across all locations
+- **Parent endpoint** changed from path param to query param (URL encoding fix)
+- **Risk note** added for 0-score employers ("no inspections ≠ safe")
+- **data_notes** added to search responses (freshness, coverage, scoring methodology)
 
-**Live at:** https://api.fastdol.com
+### Parent Company Matching
+- **OpenSanctions SEC Exhibit 21 data** — 613k parent→subsidiary mappings downloaded
+- **Manual overrides** — ~55 national chains (Amazon, Walmart, Target, FedEx, etc.) with prefix matching
+- **Dual join strategy** — exact match for SEC data (fast), prefix match for manual overrides
+- **Match rate:** 3.1% (5,989 of 190,873 profiles)
+- **CSV sniffer issues** — parent_companies.csv too messy for dbt seed, loaded directly via `load_parent_companies.py`
 
----
+### Risk Score Calibration
+- **Weights recalibrated** to match OSHA penalty ratios:
+  - Willful: 30 pts (cap 50) — was 25
+  - Repeat: 15 pts (cap 30) — was 10
+  - Serious: 3 pts (cap 20) — was 5
+  - WHD back wages: up to 8 pts
+  - WHD cases: up to 4 pts
+  - WHD employees violated: up to 3 pts
+- **Risk tier** now includes WHD signals (>$100k back wages = HIGH)
 
-## 2. Architecture
+### Data Quality
+- **Junk records filtered** — UNKNOWN, UNKNOWN CONTRACTOR, NA, NONE, TEST, TBD excluded from gold model
+- **Name normalization** — strips leading numbers (`65318 AMAZON COM SERVICES` → `AMAZON COM SERVICES`)
+- **NAICS 2017 codes added** — 139 codes from 2017 edition merged into seed (was 2,012, now 2,151)
+- **DQ gate rebuilt** — 5 dimensions (completeness, freshness, consistency, distribution, referential), blocks sync on critical failure, saves daily snapshots for regression detection
+- **ER validation script** — checks cluster sizes, over-merging, under-merging, known company spot checks
+- **Ground truth validation script** — generates 30 employer samples for manual osha.gov spot-checking
 
-### Two-Server Setup (Hetzner Cloud)
+### Pipeline Orchestration
+- **Multi-schedule pipeline** — nightly (OSHA), weekly (WHD), monthly (SEC subsidiaries + NAICS)
+- **run_pipeline.sh** — 9 steps, DQ gate before sync (step 7 blocks if critical fails)
+- **run_weekly.sh** — WHD ingestion + bronze load
+- **run_monthly.sh** — SEC subsidiaries + parent company load + NAICS update + seed reload
+- **Crontab installed** on pipeline server
 
-**API Server (scrubiq):**
-- IP: 88.198.218.234 (public), 10.0.0.2 (vSwitch)
-- Location: Nuremberg
-- Spec: CPX42, 8 vCPU, 16GB RAM
-- Runs: Postgres 16, pgBouncer, FastAPI (uvicorn on port 8001), nginx (TLS), Metabase (Docker, port 3000)
-- systemd service: `fastdol-api.service`
-- Env file: `/opt/employer-compliance/.env.api`
+### Ops
+- **API deployed** with new endpoints on API server
+- **Migration 004 applied** — zip/state/city indexes, location_count, parent_name columns
+- **Pre-launch checklist** created (PRE_LAUNCH_CHECKLIST.md)
+- **Pipeline architecture doc** created (PIPELINE_ARCHITECTURE.md)
 
-**Pipeline Server (ubuntu-32gb-nbg1-1):**
-- IP: 46.224.150.38 (public), 10.0.0.3 (vSwitch)
-- Location: Nuremberg
-- Spec: CCX33, 8 vCPU, 32GB RAM
-- Runs: DuckDB, dbt, Splink, pipeline scripts
-- Docker with `iptables: false`
-- Env file: `/opt/employer-compliance/.env.pipeline`
-
-**Connected via:** Hetzner Cloud Network (10.0.0.0/24)
-
-### Data Flow
-
-```
-DOL API v4 → Parquet (bronze) → DuckDB → dbt staging → dbt silver (normalize) 
-→ Splink (entity resolution) → post-Splink name merge → dbt gold (risk scoring) 
-→ shadow-table swap to Postgres → FastAPI serves via pgBouncer
-```
-
-### Key Credentials (all placeholder — real ones in .env files on servers)
-
-- Postgres users: `api` (password1), `pipeline_user` (password2), `metabase_user` (password3)
-- DOL API key: in `.env.pipeline` as `DOL_API_KEY`
-- Stripe: test mode, keys in `.env.api`
-- Resend: key in `.env.api`, domain `fastdol.com` verified
-- JWT: RSA keys at `/etc/employer-compliance/jwt_private.pem` and `jwt_public.pem`
-- GoDaddy DNS for fastdol.com → 88.198.218.234
-
-**IMPORTANT:** All passwords are still defaults (password1/2/3). Must change before production launch (Block 6.2 in launch agenda).
-
----
-
-## 3. Repository Structure
-
-```
-workplace_compliance/
-├── api/
-│   ├── main.py              # FastAPI app, health check, CORS, Sentry, middleware
-│   ├── auth.py              # API key verification, scope checking, quota enforcement
-│   ├── csrf.py              # Double-submit cookie CSRF middleware
-│   ├── email.py             # Resend integration (verification + password reset emails)
-│   └── routes/
-│       ├── auth.py          # Signup, login, verify, forgot-password, reset-password
-│       ├── dashboard.py     # API key CRUD (create, rotate, revoke)
-│       ├── billing.py       # Stripe checkout, webhook handler
-│       └── employers.py     # Search, lookup, batch, risk-history, feedback, industry
-├── pipeline/
-│   ├── ingest_dol.py        # DOL API v4 ingestion with burst rate limiting
-│   ├── load_bronze.py       # Load parquet into DuckDB
-│   ├── parse_addresses.py   # usaddress → address_key
-│   ├── entity_resolution.py # Splink + post-Splink name merge
-│   ├── sync.py              # Shadow-table swap DuckDB → Postgres
-│   ├── validate_sync.py     # Row count validation
-│   ├── validate_data.py     # Data quality checks (null rates, joins, distributions)
-│   └── run_pipeline.sh      # 9-step orchestration script
-├── dbt/
-│   ├── dbt_project.yml
-│   ├── profiles.yml
-│   ├── seeds/
-│   │   ├── insp_type.csv
-│   │   ├── viol_type.csv
-│   │   └── naics_2022.csv   # 2,012 NAICS codes from Census.gov
-│   ├── macros/
-│   │   └── normalize_name.sql  # Name normalization (DuckDB RE2 regex with 'g' flag)
-│   └── models/
-│       ├── staging/         # Raw table wrappers
-│       ├── silver/          # Normalized: osha_inspection_norm, whd_norm
-│       └── gold/            # employer_profile (risk tier, score, trend, SVEP, confidence)
-├── migrations/
-│   ├── migrate.py           # Sequential migration runner
-│   ├── 001_init.sql         # 18 tables
-│   ├── 002_add_constraints.sql
-│   └── 003_restrict_metabase.sql
-├── scripts/
-│   ├── init_db.sql          # Postgres role creation
-│   ├── deploy.sh            # Atomic deploy with rollback
-│   ├── fastdol-api.service  # systemd service (uses EnvironmentFile)
-│   ├── cron_alert.sh        # Slack webhook on cron failure
-│   ├── crontab.pipeline     # All cron entries (NOT YET INSTALLED)
-│   ├── rotate_keys.py       # Expire rotating_out keys past 48h
-│   ├── reset_monthly_usage.py
-│   ├── check_disk.sh
-│   ├── check_health.sh
-│   └── backup.sh
-├── nginx.conf               # TLS, rate limiting, security headers
-├── pgbouncer.ini
-├── Dockerfile               # API server
-├── Dockerfile.pipeline
-├── docker-compose.api.yml
-├── docker-compose.pipeline.yml
-├── requirements.txt         # API dependencies (pinned versions)
-├── requirements.pipeline.txt
-├── BUILD_PLAN.md
-├── LAUNCH_AGENDA.md
-├── LAUNCH_PLAN.md           # Business strategy, go-to-market
-└── osha_compliance_arch_v6.md  # Original architecture doc (v6.2)
-```
+### Dead Ends
+- **SAM.gov** — public API key doesn't expose EIN (FOUO access required)
+- **SEC EDGAR XBRL** — EntityTaxIdentificationNumber not available via public API
+- **EIN** — no free public source exists for employer tax IDs
 
 ---
 
-## 4. Current Data State
+## 2. Current Data State
 
-### What's in DuckDB (pipeline server: /data/duckdb/employer_compliance.duckdb)
+### DuckDB (pipeline server: /data/duckdb/employer_compliance.duckdb)
 
 | Table | Records | Notes |
 |-------|---------|-------|
-| raw_osha_inspections | 2,485,000 | Full OSHA inspection history |
-| raw_osha_violations | 400,000 | Linked to inspections by activity_nr |
-| raw_whd_actions | 62,000 | Partial — rate limited, needs more |
-| osha_inspection_norm | 2,485,000 | Silver: normalized names, joined violations |
-| employer_clusters | 2,484,991 | Splink output |
-| cluster_id_mapping | 1,204,491 | After post-Splink name merge |
-| employer_profile | 249,472 | Gold: risk-scored profiles |
-| er_input | 2,484,991 | Entity resolution input |
-| naics_2022 | 2,012 | NAICS code → description seed |
+| raw_osha_inspections | 2,485,000 | Full history |
+| raw_osha_violations | 1,805,000 | Linked by activity_nr |
+| raw_whd_actions | 354,965 | Full WHD enforcement since FY2005 |
+| osha_inspection_norm | ~2,485,000 | Silver: normalized names, joined violations |
+| whd_norm | ~354,965 | Silver: normalized WHD data |
+| employer_clusters | 2,839,808 | Splink output (OSHA + WHD combined) |
+| cluster_id_mapping | 1,132,995 | Stable employer_id UUIDs |
+| employer_profile | 190,912 | Gold: risk-scored profiles |
+| parent_companies | 613,451 | SEC Exhibit 21 + manual overrides |
+| naics_2022 | 2,151 | 2017 + 2022 editions |
 
-### What's in Postgres (API server)
+### Postgres (API server)
 
-| Table | Records | Notes |
-|-------|---------|-------|
-| employer_profile | 249,472 | Synced from DuckDB Gold |
-| All other tables | Empty or minimal | Auth tables have test data |
+| Table | Records |
+|-------|---------|
+| employer_profile | 190,873 | 
 
 ### Risk Distribution
 
-- HIGH: 2,610 employers
-- ELEVATED: 302
-- MEDIUM: 77,344
-- LOW: 169,216 (approximate)
-
-### Data Quality
-
-- Violation join: 100% (all 400k violations linked to inspections)
-- Name normalization: working (strips INC/LLC/CORP/LTD/DBA, trailing numbers)
-- Entity resolution: Splink clusters + post-Splink name merge (1.69M → 1.2M clusters)
-- Known issue: National chains (Amazon, Walmart) still show as separate location-based clusters because different name variants (AMAZONCOM SERVICES, AMAZON FULFILLMENT, etc.) don't merge without EIN-based linking
+- HIGH: 4,278 (2.2%)
+- ELEVATED: 2,384 (1.2%)
+- MEDIUM: 88,937 (46.6%)
+- LOW: 95,313 (49.9%)
 
 ---
 
-## 5. API Endpoints (all live at api.fastdol.com)
-
-### Public
-- `GET /v1/health` — system health with pipeline stats, data freshness
+## 3. API Endpoints (all live at api.fastdol.com)
 
 ### Employer Data (requires X-Api-Key header)
-- `GET /v1/employers?name=&ein=&state=&naics=` — fuzzy search (pg_trgm)
+- `GET /v1/employers?name=&zip=&state=&naics=` — fuzzy search, paginated, risk_score desc
+- `GET /v1/employers/parent?name=` — parent company rollup (aggregate + locations)
 - `GET /v1/employers/{id}` — direct lookup (301 redirect for superseded IDs)
-- `GET /v1/employers/{id}/inspections` — free, not metered
-- `GET /v1/employers/{id}/risk-history` — nightly snapshots
-- `POST /v1/employers/batch` — sync <=25 items (>25 returns 501)
-- `POST /v1/employers/{id}/feedback` — report bad matches
+- `GET /v1/employers/{id}/inspections` — inspection history (not metered)
+- `GET /v1/employers/{id}/risk-history` — nightly risk snapshots
+- `POST /v1/employers/batch` — bulk lookup (100 sync, state/zip/city filters)
+- `POST /v1/employers/upload-csv` — CSV upload → CSV results (500 row limit)
+- `POST /v1/employers/{id}/feedback` — report bad matches (not metered)
 - `GET /v1/industries/{naics4}` — industry benchmarks
 - `GET /v1/industries/naics-codes` — NAICS code discovery
 
 ### Auth
-- `POST /auth/signup` — argon2id hash, email verification via Resend
-- `GET /auth/verify?token=` — verify email, issue first API key
-- `POST /auth/login` — RS256 JWT as HttpOnly cookie (8h expiry)
-- `POST /auth/forgot-password` — always 202
-- `POST /auth/reset-password` — token-based
+- `POST /auth/signup`, `GET /auth/verify`, `POST /auth/login`
+- `POST /auth/forgot-password`, `POST /auth/reset-password`
 
-### Dashboard (JWT cookie auth + CSRF)
-- `GET /dashboard/keys` — list keys
-- `POST /dashboard/keys` — create key (shown once, max 5)
-- `POST /dashboard/keys/{id}/rotate` — 48h NIST window
-- `DELETE /dashboard/keys/{id}` — immediate revoke
+### Dashboard
+- `GET /dashboard/keys`, `POST /dashboard/keys`
+- `POST /dashboard/keys/{id}/rotate`, `DELETE /dashboard/keys/{id}`
 
 ### Billing
-- `POST /billing/checkout` — create Stripe checkout session
-- `POST /webhooks/stripe` — handle checkout.session.completed, subscription.deleted
-- `GET /billing/success` / `GET /billing/cancel`
+- `POST /billing/checkout`, `POST /webhooks/stripe`
+- `GET /billing/success`, `GET /billing/cancel`
+
+### System
+- `GET /v1/health` — public health check
 
 ---
 
-## 6. What We Were Working On (Interrupted)
+## 4. Known Issues / Gotchas
 
-### Immediate Task: WHD Data Ingestion (Block 1.7)
-
-WHD (Wage & Hour Division) ingestion got 62,000 records but stopped due to rate limits. WHD has significantly more records. Need to:
-
-1. Restart WHD ingestion to get remaining records
-2. Load into DuckDB
-3. Build WHD Silver model (already exists at `dbt/models/silver/whd_norm.sql` but couldn't run because raw_whd_actions table didn't exist)
-4. Integrate WHD data into Gold model employer profiles
-
-**WHD does NOT have EIN** — we discovered this during the session. The arch doc assumed it did, but the DOL v4 API doesn't expose EIN for any dataset.
-
-### Next Task: SAM.gov EIN Integration
-
-We identified SAM.gov as the best free source for EIN data (millions of federal contractor entities with EIN). The user was in the process of registering for a SAM.gov API key. Plan:
-
-1. Get SAM.gov API key
-2. Download entity extract (bulk CSV with EIN, legal name, address, NAICS)
-3. Match SAM entities to OSHA records via name + address
-4. Use EIN as canonical entity key for parent company resolution
-
-This solves the "Amazon shows as 50 separate locations" problem.
+1. **DuckDB single-writer lock** — kill stuck processes before pipeline: `kill -9 $(lsof -t /data/duckdb/employer_compliance.duckdb)`
+2. **Uvicorn runs on port 8001** (not 8000) — port 8000 used by openlabels
+3. **nginx config uses port 8000** — deployed version sed'd to 8001
+4. **Database is named `stablelabel`** not `employer_compliance` — legacy name, works fine
+5. **parent_companies.csv** can't load via dbt seed (CSV sniffer fails on special chars) — use `load_parent_companies.py` instead
+6. **Splink v4.0.6** — EM training fails, use only `estimate_u_using_random_sampling`
+7. **DOL API key** must be sent as BOTH header AND query param (WHD requires query param)
+8. **WHD offset 130000** returns persistent 502 — bad batch skip logic handles it
+9. **Postgres table ownership** — `employer_profile` owned by `pipeline_user`, migrations need that user
+10. **39 duplicate employer_ids** in gold model from parent match join — deduplicated in sync.py
 
 ---
 
-## 7. DOL API v4 Rate Limiting (Critical Knowledge)
+## 5. Pipeline Schedule (crontab installed)
 
-The DOL API (apiprod.dol.gov/v4) has undocumented rate limits:
-
-- **Burst limit:** ~13 requests before 429/500/502 errors
-- **Reset window:** ~60 seconds of silence
-- **Key placement:** OSHA endpoints accept header auth, WHD requires query param. We send both.
-- **Page size:** OSHA allows 5,000 records/request, WHD allows 1,000 (5,000 returns 413)
-- **Our strategy:** Burst 10 requests, cooldown 65s. On 429, wait 120s + escalating backoff.
-- **Per-source page_size:** Defined in SOURCES dict in ingest_dol.py
-- **Checkpoint:** Saves parquet every 5,000 records via atomic rename (temp file → final file)
-- **Resume:** On restart, loads existing parquet and resumes from that offset
-
----
-
-## 8. Security Posture
-
-5 security audits were conducted and 30+ issues fixed across 4 commits:
-
-### Fixed
-- Test key backdoor locked down (blocked in production)
-- User enumeration on signup removed
-- CSRF on dashboard + billing endpoints
-- JWT fails hard in production if RSA keys missing
-- Scope escalation prevented (only admins can create admin:all keys)
-- Stripe webhook idempotency atomic (INSERT ON CONFLICT DO NOTHING)
-- API key moved from URL query params to HTTP header (was leaking in logs)
-- nginx TLS hardening (TLSv1.2+, strong ciphers, OCSP stapling)
-- Rate limiting on all nginx locations
-- Metabase grants restricted to analytical tables only
-- Password max length 128 (prevents argon2 DoS)
-- Input length limits on all Pydantic models
-- Backup script excludes .env files
-- Atomic parquet checkpoint writes
-- rotating_out keys checked at request time
-
-### Not Fixed (lower priority)
-- Systemd service runs as root (has hardening directives but still root user)
-- Docker base images not digest-pinned
-- No Content-Security-Policy fine-tuning
-- pgBouncer connection logging disabled
-- Log rotation not configured
-- No test infrastructure (zero tests)
+| Schedule | Cron | Script |
+|----------|------|--------|
+| Nightly 2AM | `0 2 * * *` | `run_pipeline.sh` (OSHA + full pipeline) |
+| Weekly Sun 1AM | `0 1 * * 0` | `run_weekly.sh` (WHD ingestion) |
+| Monthly 1st | `0 0 1 * *` | `run_monthly.sh` (SEC subsidiaries + NAICS) |
+| Backup 4AM | `0 4 * * *` | `backup.sh` |
+| Health 8:30AM | `30 8 * * *` | `check_health.sh` |
+| Key rotation | `0 * * * *` | `rotate_keys.py` |
+| Disk check | `0 */6 * * *` | `check_disk.sh` |
+| Usage reset | `5 0 1 * *` | `reset_monthly_usage.py` |
 
 ---
 
-## 9. Ops Status
+## 6. What's Next
 
-### Crontab (NOT INSTALLED — file exists at scripts/crontab.pipeline)
-- Pipeline: 2 AM daily
-- Health check: 8:30 AM daily
-- Key rotation: hourly
-- Backup: 4 AM daily
-- Disk check: every 6h
-- Monthly usage reset: 1st of month
+### Immediate (next session)
+1. **Website** — the only blocker to revenue:
+   - Landing page (hero, value prop, data sources)
+   - Search page (name + zip/state, results with risk profiles)
+   - CSV bulk upload page (drag & drop, get results CSV)
+   - Signup/login pages (calls existing auth API)
+   - Pricing page (tiers, Stripe checkout)
+   - API key display (shown once after verification)
+   - Stack: Next.js + Tailwind + shadcn/ui, deploy to Vercel
+2. **Ground truth validation** — run `validate_ground_truth.py`, spot-check 10+ employers against osha.gov
+3. **Security hardening** — change default passwords, Stripe live mode, Sentry DSN (see PRE_LAUNCH_CHECKLIST.md)
 
-### Backups
-- Local only (/data/backups, 7-day retention)
-- R2 offsite NOT configured
-- pg_dump + DuckDB checkpoint + config (excluding .env)
+### After first customers
+4. **Additional data sources** (each ~1 day with existing pipeline framework):
+   - MSHA (mine safety) — bulk download, pipe-delimited flat files
+   - FMCSA (trucking) — REST API, free key via Login.gov
+   - EPA ECHO (environmental) — bulk CSV, 1.5M facilities
+   - OFCCP (federal contractor compliance) — DOL data catalog CSV
+   - NLRB (labor relations) — GitHub scraper or web search tool
+5. **HIL review queue UI** — review borderline Splink pairs (0.80-0.85 match probability)
+6. **API documentation** — endpoint reference, getting started guide, code examples
+7. **Python SDK** — thin wrapper over API (search, batch, upload, parent)
+8. **Grafana monitoring** — pipeline metrics, API response times, DQ trends
 
-### Monitoring
-- Sentry SDK initialized (needs real DSN in .env.api)
-- UptimeRobot NOT configured
-- structlog JSON logging to stdout
-
----
-
-## 10. Launch Agenda (see LAUNCH_AGENDA.md)
-
-### Block 1: Data Quality — IN PROGRESS
-- [x] 1.1 Verify violation join (400k correctly linked)
-- [x] 1.2 Fix entity resolution (name merge, normalization)
-- [x] 1.3 Add zip field
-- [x] 1.4 Add naics_2022.csv seed (in dbt, Gold model updated)
-- [x] 1.5 Add confidence_tier
-- [x] 1.6 Add svep_flag
-- [ ] 1.7 WHD integration (62k downloaded, need more + integration)
-- [x] 1.8 Data quality checks (validate_data.py)
-- [ ] 1.9 Manual validation against osha.gov
-- [ ] 1.10 Full pipeline re-run with all fixes
-- [ ] 1.11 Install crontab
-
-### Block 2: Website — NOT STARTED
-- 2A: Marketing site (landing, demo widget, pricing)
-- 2B: Auth pages (signup, login, verify, reset)
-- 2C: Developer dashboard (API keys, usage, billing)
-- 2D: Docs site (API reference, getting started, examples)
-
-### Block 3: Entity Resolution Improvement
-- WHD integration (name matching)
-- SAM.gov EIN bridge (user registering for API key)
-- Parent company seed table (top 500)
-
-### Block 4: HIL Review UI
-### Block 5: Ops Hardening
-### Block 6: Pre-Launch Polish
-
----
-
-## 11. Key Files to Read First
-
-1. `LAUNCH_AGENDA.md` — what's left to build
-2. `LAUNCH_PLAN.md` — business strategy, pricing, go-to-market
-3. `api/main.py` — app entry point, all routes registered here
-4. `api/auth.py` — how API key auth works
-5. `pipeline/ingest_dol.py` — DOL API ingestion with rate limiting
-6. `pipeline/entity_resolution.py` — Splink + post-Splink name merge
-7. `dbt/models/gold/employer_profile.sql` — risk scoring logic
-8. `pipeline/sync.py` — shadow-table swap to Postgres
-9. `osha_compliance_arch_v6.md` — original architecture doc (v6.2 with our amendments)
-
----
-
-## 12. Known Issues / Gotchas
-
-1. **WHD staging model errors on every dbt run** because `raw_whd_actions` doesn't always exist. Use `dbt run --select staging silver` and ignore the WHD error if no WHD data is loaded.
-
-2. **DuckDB single-writer lock** — only one process can write to the DuckDB file at a time. Kill any stuck Python processes before running pipeline steps: `kill -9 $(lsof -t /data/duckdb/employer_compliance.duckdb)`
-
-3. **Postgres table ownership** — `employer_profile` is owned by `pipeline_user` (not `api`). After any manual table recreation, run: `ALTER TABLE employer_profile OWNER TO pipeline_user;` and `GRANT SELECT ON employer_profile TO api;`
-
-4. **Uvicorn runs on port 8001** (not 8000) because port 8000 is used by an existing openlabels project on scrubiq.
-
-5. **nginx config in repo uses port 8000** — the deployed version on scrubiq was sed'd to 8001. When redeploying nginx config, run: `sed 's/127.0.0.1:8000/127.0.0.1:8001/g' nginx.conf > /etc/nginx/sites-available/fastdol`
-
-6. **Splink v4.0.6 bug** — EM training fails with `ValueError: Expected sql condition to refer to one column`. Workaround: skip EM, use only `estimate_u_using_random_sampling`. See entity_resolution.py.
-
-7. **DOL API key** must be sent as BOTH header AND query param. WHD endpoint rejects header-only auth. See `fetch_one_page` in ingest_dol.py.
-
-8. **`openpyxl` needed on pipeline server** for NAICS seed generation. Install: `pip install openpyxl`
-
-9. **Previous pipeline server (65.21.49.4) was compromised** via exposed Docker daemon. Malware was found and removed, server was deleted. Current pipeline server has Docker `iptables: false` and UFW deny-all defaults.
-
-10. **Hetzner abuse report** was filed against the old pipeline server IP. If you reuse that IP, it may still be blocked. Current pipeline server uses a different IP (46.224.150.38).
+### Key files to read first
+1. `PIPELINE_ARCHITECTURE.md` — full pipeline diagram, schedule, risk scoring methodology
+2. `PRE_LAUNCH_CHECKLIST.md` — every step to go live
+3. `LAUNCH_AGENDA.md` — block-by-block launch plan
+4. `api/routes/employers.py` — all employer endpoints
+5. `dbt/models/gold/employer_profile.sql` — risk scoring logic
+6. `pipeline/entity_resolution.py` — Splink + name merge
+7. `pipeline/ingest_dol.py` — DOL API ingestion with rate limiting
+8. `pipeline/validate_data.py` — data quality gate

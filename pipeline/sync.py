@@ -50,7 +50,9 @@ def sync():
         "osha_inspections_5yr", "osha_violations_5yr",
         "osha_serious_willful", "osha_total_penalties",
         "osha_open_date_latest", "osha_avg_gravity",
+        "whd_cases_5yr", "whd_backwages_total", "whd_ee_violated_total",
         "risk_tier", "risk_score", "confidence_tier", "trend_signal",
+        "location_count", "parent_name",
     ]
 
     # Build the dataframe with Postgres column names
@@ -79,9 +81,17 @@ def sync():
 
     pg_df = pg_df[pg_columns]
 
+    # Deduplicate — parent_match join can produce dupes, keep first per employer_id
+    before = len(pg_df)
+    pg_df = pg_df.drop_duplicates(subset=["employer_id"], keep="first")
+    if len(pg_df) < before:
+        print(f"  Deduplicated: {before - len(pg_df)} duplicate employer_ids removed")
+
     # Cast integer columns — DuckDB SUM() produces floats
     int_cols = [
         "osha_inspections_5yr", "osha_violations_5yr", "osha_serious_willful",
+        "location_count",
+        "whd_cases_5yr", "whd_ee_violated_total",
     ]
     for col in int_cols:
         if col in pg_df.columns:

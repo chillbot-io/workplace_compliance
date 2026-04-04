@@ -19,6 +19,7 @@ from api.routes.employers import router as employers_router
 from api.routes.auth import router as auth_router
 from api.routes.dashboard import router as dashboard_router
 from api.routes.billing import router as billing_router
+from api.routes.upload import router as upload_router
 
 structlog.configure(
     processors=[
@@ -75,6 +76,7 @@ app.include_router(employers_router)
 app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(billing_router)
+app.include_router(upload_router)
 
 
 @app.get("/v1/health")
