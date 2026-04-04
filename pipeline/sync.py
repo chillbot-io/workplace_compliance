@@ -85,6 +85,7 @@ def sync():
     int_cols = [
         "osha_inspections_5yr", "osha_violations_5yr", "osha_serious_willful",
         "location_count",
+        "whd_cases_5yr", "whd_ee_violated_total",
     ]
     for col in int_cols:
         if col in pg_df.columns:
