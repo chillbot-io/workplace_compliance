@@ -104,9 +104,10 @@ export function DemoSearch() {
       {results.length > 0 && (
         <div className="mt-6 space-y-3">
           {results.map((r) => (
-            <div
+            <Link
               key={r.employer_id}
-              className="rounded-lg border border-slate-700 bg-slate-800/50 p-4 hover:border-slate-600 transition-colors"
+              href={`/employers/${r.employer_id}`}
+              className="block rounded-lg border border-slate-700 bg-slate-800/50 p-4 hover:border-violet-500/50 transition-colors"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -142,7 +143,7 @@ export function DemoSearch() {
               {r.risk_note && (
                 <div className="mt-2 text-xs text-slate-600 italic">{r.risk_note}</div>
               )}
-            </div>
+            </Link>
           ))}
 
           {totalCount > 3 && (
