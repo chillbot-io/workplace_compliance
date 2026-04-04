@@ -55,6 +55,7 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4">
+      <title>Sign Up - FastDOL</title>
       <div className="w-full max-w-md">
         <h1 className="text-2xl font-bold text-gray-900 text-center mb-2">Create your account</h1>
         <p className="text-center text-gray-600 mb-8">50 free lookups. No credit card required.</p>

@@ -3,11 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+interface ApiKey {
+  key_prefix: string;
+  status: string;
+  current_usage: number;
+  monthly_limit: number;
+  created_at?: string;
+  plan?: string;
+}
+
 export default function AccountPage() {
-  const [keys, setKeys] = useState<Record<string, unknown>[]>([]);
+  const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch("/api/account/keys")
@@ -37,6 +45,7 @@ export default function AccountPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8">
+      <title>Account - FastDOL</title>
       <h1 className="text-2xl font-bold text-gray-900 mb-8">Account</h1>
 
       {/* API Keys */}
@@ -47,15 +56,15 @@ export default function AccountPage() {
             {keys.map((key, i) => (
               <div key={i} className="flex items-center justify-between bg-gray-50 rounded p-3">
                 <div>
-                  <code className="text-sm font-mono">{(key.key_prefix as string) || "***"}...</code>
+                  <code className="text-sm font-mono">{key.key_prefix || "***"}...</code>
                   <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
                     key.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
                   }`}>
-                    {key.status as string}
+                    {key.status}
                   </span>
                 </div>
                 <div className="text-xs text-gray-500">
-                  {key.current_usage as number}/{key.monthly_limit as number} lookups
+                  {key.current_usage}/{key.monthly_limit} lookups
                 </div>
               </div>
             ))}

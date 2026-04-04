@@ -39,6 +39,7 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4">
+      <title>Log In - FastDOL</title>
       <div className="w-full max-w-md">
         <h1 className="text-2xl font-bold text-gray-900 text-center mb-8">Log in to FastDOL</h1>
 

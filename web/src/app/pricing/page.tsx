@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Pricing - FastDOL",
+  description: "Simple, transparent pricing for employer compliance risk lookups. Start free with 50 lookups per month.",
+};
 
 const plans = [
   {

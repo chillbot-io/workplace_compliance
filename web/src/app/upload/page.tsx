@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 
 export default function UploadPage() {
@@ -9,11 +9,28 @@ export default function UploadPage() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ matched: number; total: number; url: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const blobUrlRef = useRef<string | null>(null);
+
+  // Revoke blob URL on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, []);
 
   async function handleUpload() {
     if (!file) return;
     setLoading(true);
     setError("");
+
+    // Revoke any previous blob URL before starting a new upload
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
     setResult(null);
 
     try {
@@ -37,6 +54,7 @@ export default function UploadPage() {
       const matched = parseInt(res.headers.get("X-Matched") || "0");
       const total = parseInt(res.headers.get("X-Total") || "0");
 
+      blobUrlRef.current = url;
       setResult({ matched, total, url });
     } catch {
       setError("Something went wrong. Please try again.");
@@ -57,6 +75,7 @@ export default function UploadPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8">
+      <title>CSV Bulk Upload - FastDOL</title>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">CSV Bulk Upload</h1>
         <Link href="/search" className="text-sm text-blue-600 hover:underline">&larr; Search</Link>
@@ -137,7 +156,7 @@ export default function UploadPage() {
             Download Results CSV
           </a>
           <button
-            onClick={() => { setFile(null); setResult(null); }}
+            onClick={() => { if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; } setFile(null); setResult(null); }}
             className="mt-2 block mx-auto text-sm text-gray-500 hover:underline"
           >
             Upload another file

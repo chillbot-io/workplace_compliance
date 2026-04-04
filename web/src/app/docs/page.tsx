@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "API Documentation - FastDOL",
+  description: "FastDOL API documentation. Search employers, batch lookups, CSV upload, risk scoring, and code examples.",
+};
+
 export default function DocsPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-12">
