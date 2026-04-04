@@ -203,11 +203,14 @@ parent_prefix AS (
         ON e.name_normalized LIKE pc.name_pattern || '%'
         AND pc.match_type = 'prefix'
 ),
-parent_match AS (
+parent_combined AS (
     SELECT employer_id, parent_name FROM parent_exact
     UNION ALL
     SELECT employer_id, parent_name FROM parent_prefix
     WHERE employer_id NOT IN (SELECT employer_id FROM parent_exact)
+),
+parent_match AS (
+    SELECT DISTINCT employer_id, parent_name FROM parent_combined
 ),
 
 -- Location count per parent or per normalized name
