@@ -209,6 +209,35 @@ msha_agg AS (
     GROUP BY mk.name_normalized, mk.state
 ),
 
+-- OFCCP: compliance evaluations matched by name + state + zip
+ofccp_agg AS (
+    SELECT
+        name_normalized,
+        state,
+        zip5,
+        COUNT(*) AS ofccp_evaluations,
+        SUM(CASE WHEN violations_found = 'Y' THEN 1 ELSE 0 END) > 0 AS ofccp_violations_found
+    FROM {{ ref('ofccp_norm') }}
+    WHERE date_resolved >= CURRENT_DATE - INTERVAL '5 years'
+      AND name_normalized IS NOT NULL
+      AND LENGTH(name_normalized) > 1
+    GROUP BY name_normalized, state, zip5
+),
+
+-- OFLC: labor condition application counts by employer
+oflc_agg AS (
+    SELECT
+        name_normalized,
+        state,
+        zip5,
+        COUNT(*) AS oflc_lca_count
+    FROM {{ ref('oflc_norm') }}
+    WHERE received_date >= CURRENT_DATE - INTERVAL '5 years'
+      AND name_normalized IS NOT NULL
+      AND LENGTH(name_normalized) > 1
+    GROUP BY name_normalized, state, zip5
+),
+
 -- Parent company matching (display-only, never merges profiles)
 parent_exact AS (
     SELECT e.employer_id, pc.parent_name
@@ -255,6 +284,13 @@ SELECT
     -- MSHA fields (matched by name + state — MSHA doesn't have zip)
     COALESCE(msha.msha_violations_5yr, 0) AS msha_violations_5yr,
     COALESCE(msha.msha_assessed_penalties, 0) AS msha_assessed_penalties,
+
+    -- OFCCP fields (matched by name + state + zip)
+    COALESCE(ofccp.ofccp_evaluations, 0) AS ofccp_evaluations,
+    COALESCE(ofccp.ofccp_violations_found, false) AS ofccp_violations_found,
+
+    -- OFLC fields (matched by name + state + zip)
+    COALESCE(oflc.oflc_lca_count, 0) AS oflc_lca_count,
 
     -- Parent company name (display-only)
     pm.parent_name,
@@ -323,6 +359,8 @@ SELECT
 FROM employer_osha e
 LEFT JOIN whd_agg w ON e.employer_id = w.employer_id
 LEFT JOIN msha_agg msha ON e.name_normalized = msha.name_normalized AND e.state = msha.state
+LEFT JOIN ofccp_agg ofccp ON e.name_normalized = ofccp.name_normalized AND e.state = ofccp.state AND e.zip5 = ofccp.zip5
+LEFT JOIN oflc_agg oflc ON e.name_normalized = oflc.name_normalized AND e.state = oflc.state AND e.zip5 = oflc.zip5
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
 LEFT JOIN {{ ref('naics_2022') }} n ON e.naics_code = n.naics_code
