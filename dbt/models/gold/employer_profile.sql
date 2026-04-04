@@ -28,7 +28,7 @@ osha_with_employer AS (
         o.*,
         COALESCE(c.employer_id, CAST(o.activity_nr AS VARCHAR)) AS employer_id
     FROM osha o
-    LEFT JOIN cluster_map c ON o.activity_nr = c.unique_id
+    LEFT JOIN cluster_map c ON CAST(o.activity_nr AS VARCHAR) = CAST(c.unique_id AS VARCHAR)
 ),
 
 -- 5-year window
