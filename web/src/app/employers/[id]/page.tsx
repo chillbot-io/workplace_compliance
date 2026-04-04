@@ -170,7 +170,7 @@ export default function EmployerDetailPage({ params }: { params: Promise<{ id: s
   return (
     <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-8">
       <title>{`${employer.employer_name} - FastDOL`}</title>
-      <Link href="/search" className="text-sm text-rose-500 hover:underline mb-4 inline-block">&larr; Back to search</Link>
+      <Link href="/search" className="text-sm text-violet-500 hover:underline mb-4 inline-block">&larr; Back to search</Link>
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-8">
@@ -181,7 +181,7 @@ export default function EmployerDetailPage({ params }: { params: Promise<{ id: s
           </p>
           {employer.parent_name && (
             <Link href={`/search?parent=${encodeURIComponent(employer.parent_name)}`}
-              className="text-sm text-rose-500 hover:underline mt-1 inline-block">
+              className="text-sm text-violet-500 hover:underline mt-1 inline-block">
               Parent: {employer.parent_name} ({employer.location_count} locations)
             </Link>
           )}
@@ -199,7 +199,7 @@ export default function EmployerDetailPage({ params }: { params: Promise<{ id: s
       </div>
 
       {employer.risk_note && (
-        <div className="rounded-md bg-rose-500/10 border border-rose-500/20 p-3 text-sm text-rose-400 mb-6">
+        <div className="rounded-md bg-violet-500/10 border border-violet-500/20 p-3 text-sm text-violet-400 mb-6">
           {employer.risk_note}
         </div>
       )}

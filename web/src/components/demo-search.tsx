@@ -75,7 +75,7 @@ export function DemoSearch() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Employer name (e.g., Walmart, Amazon)"
           aria-label="Employer name"
-          className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none"
+          className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none"
         />
         <input
           type="text"
@@ -83,13 +83,13 @@ export function DemoSearch() {
           onChange={(e) => setZip(e.target.value)}
           placeholder="ZIP (optional)"
           aria-label="ZIP code"
-          className="w-full sm:w-28 rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none"
+          className="w-full sm:w-28 rounded-md border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none"
           maxLength={5}
         />
         <button
           type="submit"
           disabled={loading}
-          className="rounded-md bg-rose-500 px-6 py-3 text-sm font-medium text-white hover:bg-rose-600 disabled:opacity-50 transition-colors"
+          className="rounded-md bg-violet-500 px-6 py-3 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50 transition-colors"
         >
           {loading ? "Searching..." : "Search"}
         </button>
@@ -116,7 +116,7 @@ export function DemoSearch() {
                   <div className="text-sm text-slate-500 mt-1">
                     {[r.city, r.state, r.zip].filter(Boolean).join(", ")}
                     {r.parent_name && (
-                      <span className="ml-2 text-xs text-rose-400">
+                      <span className="ml-2 text-xs text-violet-400">
                         ({r.parent_name})
                       </span>
                     )}
@@ -147,7 +147,7 @@ export function DemoSearch() {
 
           {totalCount > 3 && (
             <div className="text-center pt-2">
-              <Link href="/signup" className="text-sm text-rose-500 hover:underline">
+              <Link href="/signup" className="text-sm text-violet-500 hover:underline">
                 Sign up free to see all {totalCount} results
               </Link>
             </div>

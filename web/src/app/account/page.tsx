@@ -37,7 +37,7 @@ export default function AccountPage() {
       <div className="flex min-h-[60vh] items-center justify-center px-4">
         <div className="text-center">
           <p className="text-slate-400 mb-4">{error}</p>
-          <Link href="/login" className="rounded-md bg-rose-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-rose-600">Log in</Link>
+          <Link href="/login" className="rounded-md bg-violet-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-600">Log in</Link>
         </div>
       </div>
     );
@@ -76,15 +76,15 @@ export default function AccountPage() {
 
       {/* Quick links */}
       <div className="grid sm:grid-cols-3 gap-4">
-        <Link href="/search" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-rose-500/50">
+        <Link href="/search" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-violet-500/50">
           <div className="font-semibold text-white">Search</div>
           <div className="text-sm text-slate-400">Look up employers</div>
         </Link>
-        <Link href="/upload" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-rose-500/50">
+        <Link href="/upload" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-violet-500/50">
           <div className="font-semibold text-white">CSV Upload</div>
           <div className="text-sm text-slate-400">Bulk lookup</div>
         </Link>
-        <Link href="/pricing" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-rose-500/50">
+        <Link href="/pricing" className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 text-center hover:border-violet-500/50">
           <div className="font-semibold text-white">Upgrade</div>
           <div className="text-sm text-slate-400">Get more lookups</div>
         </Link>

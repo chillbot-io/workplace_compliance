@@ -78,7 +78,7 @@ export default function UploadPage() {
       <title>CSV Bulk Upload - FastDOL</title>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-white">CSV Bulk Upload</h1>
-        <Link href="/search" className="text-sm text-rose-500 hover:underline">&larr; Search</Link>
+        <Link href="/search" className="text-sm text-violet-500 hover:underline">&larr; Search</Link>
       </div>
 
       <p className="text-slate-300 mb-6">
@@ -104,7 +104,7 @@ export default function UploadPage() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
         onClick={() => fileRef.current?.click()}
-        className="border-2 border-dashed border-slate-600 rounded-lg p-12 text-center cursor-pointer hover:border-rose-500 transition-colors"
+        className="border-2 border-dashed border-slate-600 rounded-lg p-12 text-center cursor-pointer hover:border-violet-500 transition-colors"
       >
         <input
           ref={fileRef}
@@ -137,7 +137,7 @@ export default function UploadPage() {
         <button
           onClick={handleUpload}
           disabled={loading}
-          className="mt-4 w-full rounded-md bg-rose-500 py-3 text-sm font-medium text-white hover:bg-rose-600 disabled:opacity-50"
+          className="mt-4 w-full rounded-md bg-violet-500 py-3 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
         >
           {loading ? "Processing..." : `Upload & process ${file.name}`}
         </button>

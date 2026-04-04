@@ -25,7 +25,7 @@ export function Header() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <Link href="/" className="text-xl font-bold text-white">
-            Fast<span className="text-rose-500">DOL</span>
+            Fast<span className="text-violet-500">DOL</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">
@@ -44,7 +44,7 @@ export function Header() {
             ) : (
               <>
                 <Link href="/login" className="text-sm text-slate-400 hover:text-white transition-colors">Log in</Link>
-                <Link href="/signup" className="rounded-md bg-rose-500 px-4 py-2 text-sm font-medium text-white hover:bg-rose-600 transition-colors">
+                <Link href="/signup" className="rounded-md bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 transition-colors">
                   Get Started Free
                 </Link>
               </>
@@ -81,7 +81,7 @@ export function Header() {
             ) : (
               <>
                 <Link href="/login" className="block py-2 text-sm text-slate-400">Log in</Link>
-                <Link href="/signup" className="block py-2 text-sm font-medium text-rose-500">Get Started Free</Link>
+                <Link href="/signup" className="block py-2 text-sm font-medium text-violet-500">Get Started Free</Link>
               </>
             )}
           </div>

@@ -49,7 +49,7 @@ function VerifyContent() {
       <div className="text-center">
         <h1 className="text-2xl font-bold text-white mb-4">Verification failed</h1>
         <p className="text-slate-400 mb-6">{error}</p>
-        <Link href="/signup" className="text-rose-500 hover:underline">Try signing up again</Link>
+        <Link href="/signup" className="text-violet-500 hover:underline">Try signing up again</Link>
       </div>
     );
   }
@@ -70,7 +70,7 @@ function VerifyContent() {
 
       <Link
         href="/search"
-        className="rounded-md bg-rose-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-rose-600"
+        className="rounded-md bg-violet-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-600"
       >
         Start searching
       </Link>
