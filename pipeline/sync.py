@@ -255,8 +255,10 @@ def sync_inspection_detail(duck, conn, pipeline_run_id):
         )
 
         conn.commit()
-        insp_count = cur.execute("SELECT COUNT(*) FROM inspection_detail").fetchone()[0]
-        viol_count = cur.execute("SELECT COUNT(*) FROM violation_detail").fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM inspection_detail")
+        insp_count = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM violation_detail")
+        viol_count = cur.fetchone()[0]
         print(f"Inspection detail: {insp_count:,} inspections, {viol_count:,} violations synced.")
 
     except Exception as e:
