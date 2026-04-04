@@ -228,7 +228,7 @@ parent_raw AS (
                ORDER BY LENGTH(pc.name_pattern) DESC
            ) AS rn
     FROM employer_osha e
-    INNER JOIN parent_companies pc
+    INNER JOIN {{ ref('parent_companies') }} pc
         ON e.name_normalized LIKE pc.name_pattern || '%'
 ),
 parent_match AS (
