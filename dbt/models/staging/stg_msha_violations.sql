@@ -11,8 +11,6 @@ SELECT
     SECTION_OF_ACT AS section_of_act,
     SIG_SUB AS sig_sub,
     COALESCE(CAST(PROPOSED_PENALTY AS NUMERIC), 0) AS proposed_penalty,
-    COALESCE(CAST(ASSESSED_PENALTY AS NUMERIC), 0) AS assessed_penalty,
     COALESCE(CAST(AMOUNT_PAID AS NUMERIC), 0) AS amount_paid,
-    NEGLIGENCE AS negligence,
-    GRAVITY AS gravity
+    NEGLIGENCE AS negligence
 FROM raw_msha_violations

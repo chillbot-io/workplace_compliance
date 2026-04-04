@@ -204,7 +204,7 @@ msha_agg AS (
         mk.name_normalized,
         mk.state,
         COUNT(DISTINCT mk.violation_no) AS msha_violations_5yr,
-        SUM(mk.assessed_penalty) AS msha_assessed_penalties
+        SUM(mk.proposed_penalty) AS msha_assessed_penalties
     FROM msha_with_key mk
     WHERE mk.violation_date >= CURRENT_DATE - INTERVAL '5 years'
     GROUP BY mk.name_normalized, mk.state

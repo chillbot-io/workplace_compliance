@@ -9,7 +9,7 @@ SELECT
     CURRENT_CONTROLLER_NAME AS controller_name,
     STATE AS state,
     FIPS_CNTY_NM AS county,
-    PRIMARY_SIC_DESC AS sic_description,
+    PRIMARY_SIC AS sic_code,
     CAST(LATITUDE AS DOUBLE) AS latitude,
     CAST(LONGITUDE AS DOUBLE) AS longitude
 FROM raw_msha_mines

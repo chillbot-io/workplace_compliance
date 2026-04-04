@@ -22,17 +22,14 @@ SELECT
     v.section_of_act,
     v.sig_sub,
     v.proposed_penalty,
-    v.assessed_penalty,
     v.amount_paid,
     v.negligence,
-    v.gravity,
     m.mine_name,
     m.mine_status,
     m.operator_name,
     m.controller_name,
     m.state,
-    m.county,
-    m.sic_description
+    m.county
 FROM violations v
 LEFT JOIN mines m ON v.mine_id = m.mine_id
 WHERE COALESCE(v.violator_name, m.operator_name) IS NOT NULL
