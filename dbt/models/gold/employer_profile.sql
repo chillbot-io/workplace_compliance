@@ -18,9 +18,7 @@
 WITH osha AS (
     SELECT * FROM {{ ref('osha_inspection_norm') }}
     WHERE name_normalized IS NOT NULL
-      AND name_normalized NOT IN ('UNKNOWN', 'UNKNOWN CONTRACTOR', 'UNKNOWN EMPLOYER',
-                                   'UNKNOWNINVALID ESTABLISHMENT', 'INVALID ESTABLISHMENT',
-                                   'UNKNOWN ROOFER', 'UNKNOWN SUBCONTRACTOR',
+      AND name_normalized NOT IN ('UNKNOWNINVALID ESTABLISHMENT', 'INVALID ESTABLISHMENT',
                                    'NA', 'NONE', 'TEST', 'TBD', 'NO NAME')
       AND LENGTH(name_normalized) > 2
 ),
