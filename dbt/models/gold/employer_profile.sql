@@ -71,6 +71,11 @@ employer_osha AS (
         AVG(avg_gravity) AS osha_avg_gravity
     FROM osha_5yr
     WHERE employer_id IS NOT NULL
+      -- Exclude junk records with no real employer name
+      AND name_normalized IS NOT NULL
+      AND name_normalized NOT IN ('UNKNOWN', 'UNKNOWN CONTRACTOR', 'UNKNOWN EMPLOYER',
+                                   'NA', 'NONE', 'TEST', 'TBD', 'NO NAME')
+      AND LENGTH(name_normalized) > 1
     GROUP BY employer_id
 ),
 
