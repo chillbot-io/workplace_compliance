@@ -33,15 +33,11 @@ set +a
 echo "=== Monthly Pipeline Starting — $(date -u) ===" | tee -a "$LOG_FILE"
 
 # Step 1: Refresh SEC Exhibit 21 subsidiary data (parent company mappings)
-echo "[Monthly 1/3] Downloading SEC Exhibit 21 subsidiaries..." | tee -a "$LOG_FILE"
+echo "[Monthly 1/2] Downloading SEC Exhibit 21 subsidiaries..." | tee -a "$LOG_FILE"
 python "${PROJECT_DIR}/pipeline/ingest_subsidiaries.py" 2>&1 | tee -a "$LOG_FILE"
 
-# Step 2: Refresh SEC EDGAR EIN data (public company tax IDs)
-echo "[Monthly 2/3] Fetching SEC EDGAR EINs..." | tee -a "$LOG_FILE"
-python "${PROJECT_DIR}/pipeline/ingest_sec_ein.py" 2>&1 | tee -a "$LOG_FILE"
-
-# Step 3: Reload dbt seeds with updated CSVs
-echo "[Monthly 3/3] Reloading dbt seeds..." | tee -a "$LOG_FILE"
+# Step 2: Reload dbt seeds with updated CSVs
+echo "[Monthly 2/2] Reloading dbt seeds..." | tee -a "$LOG_FILE"
 cd "${PROJECT_DIR}/dbt"
 dbt seed --profiles-dir . 2>&1 | tee -a "$LOG_FILE"
 cd "${PROJECT_DIR}"

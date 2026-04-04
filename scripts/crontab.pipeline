@@ -7,7 +7,7 @@
 # Schedule overview:
 #   Nightly  (2 AM)     — OSHA ingestion + full transform + sync to Postgres
 #   Weekly   (Sun 1 AM) — WHD enforcement data refresh
-#   Monthly  (1st)      — SEC subsidiaries + EIN reference data refresh
+#   Monthly  (1st)      — SEC subsidiaries refresh (parent company mappings)
 #   See PIPELINE_ARCHITECTURE.md for full diagram.
 
 SHELL=/bin/bash
@@ -22,7 +22,7 @@ ALERT_WEBHOOK_URL=
 # Weekly: WHD enforcement data (Sunday 1 AM, before nightly run)
 0 1 * * 0     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "pipeline-weekly" bash /opt/employer-compliance/pipeline/run_weekly.sh
 
-# Monthly: SEC subsidiary + EIN reference data (1st of month, midnight)
+# Monthly: SEC subsidiary data — parent company mappings (1st of month, midnight)
 0 0 1 * *     source /opt/employer-compliance/.env.pipeline && /opt/employer-compliance/scripts/cron_alert.sh "pipeline-monthly" bash /opt/employer-compliance/pipeline/run_monthly.sh
 
 # ── Operations ─────────────────────────────────────────────────
