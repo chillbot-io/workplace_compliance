@@ -118,12 +118,15 @@ async def search_employers(
 
             extra_where = (" AND " + " AND ".join(filter_clauses)) if filter_clauses else ""
 
+            # Use lower threshold for short names (< 6 chars get penalized by pg_trgm)
+            sim_threshold = 0.1 if len(name) < 6 else 0.15
+
             # Count total matches
             count = await con.fetchval(f"""
                 SELECT COUNT(*) FROM (
                     SELECT DISTINCT ON (employer_id) employer_id
                     FROM employer_profile
-                    WHERE similarity(employer_name, $1) > 0.2{extra_where}
+                    WHERE similarity(employer_name, $1) > {sim_threshold}{extra_where}
                     ORDER BY employer_id, snapshot_date DESC
                 ) sub
             """, *params)
@@ -134,7 +137,7 @@ async def search_employers(
                     SELECT DISTINCT ON (employer_id) *,
                            similarity(employer_name, $1) AS sim_score
                     FROM employer_profile
-                    WHERE similarity(employer_name, $1) > 0.2{extra_where}
+                    WHERE similarity(employer_name, $1) > {sim_threshold}{extra_where}
                     ORDER BY employer_id, snapshot_date DESC
                 ) sub
                 ORDER BY risk_score DESC NULLS LAST
@@ -142,10 +145,19 @@ async def search_employers(
             """, *params, limit, offset)
 
             if not rows:
-                raise HTTPException(404, detail={
-                    "error": "no_results",
-                    "message": f'No employers found matching "{name}".',
-                })
+                # Don't charge quota for zero-result searches
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": "no_results",
+                        "message": f'No employers found matching "{name}".',
+                        "suggestions": [
+                            "Try a shorter or simpler name (e.g., 'walmart' instead of 'walmart inc')",
+                            "Check spelling",
+                            "Remove zip/state filters to broaden the search",
+                        ],
+                    },
+                )
 
             await record_usage(key_row, "/v1/employers")
             headers = await get_quota_headers(key_row)
@@ -162,10 +174,10 @@ async def search_employers(
 
 ## --- Parent Company Rollup ---
 
-@router.get("/employers/parent/{parent_name}")
+@router.get("/employers/parent")
 async def get_parent_company(
-    parent_name: str,
     key_row=Depends(check_scope("employer:read")),
+    name: str = Query(..., description="Parent company name (e.g., 'Amazon', 'Walmart')"),
     state: str | None = Query(None, description="Filter locations by state"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -179,6 +191,7 @@ async def get_parent_company(
     Premium feature for enterprise customers evaluating national employers.
     """
     await check_monthly_quota(key_row)
+    parent_name = name  # rename for clarity in queries
 
     async with get_pool().acquire() as con:
         # Build filter
@@ -398,11 +411,19 @@ def _format_employer(row) -> dict:
     """Format a database row into the API response shape."""
     r = dict(row)
     # Remove internal fields
-    for key in ["sim_score", "created_at", "updated_at", "pipeline_run_id"]:
+    for key in ["sim_score", "created_at", "updated_at", "pipeline_run_id", "name_normalized"]:
         r.pop(key, None)
 
     # Roundtrip through custom encoder to handle Decimal, UUID, dates
-    return json.loads(json.dumps(r, cls=CustomEncoder))
+    result = json.loads(json.dumps(r, cls=CustomEncoder))
+
+    # Add context for risk scores
+    inspections = result.get("osha_inspections_5yr", 0) or 0
+    risk_score = result.get("risk_score", 0) or 0
+    if inspections == 0 and risk_score == 0:
+        result["risk_note"] = "No OSHA inspections in the last 5 years. This does not mean the employer is violation-free — OSHA inspects a small fraction of workplaces annually."
+
+    return result
 
 
 ## --- Batch Lookup ---
@@ -458,10 +479,12 @@ async def batch_lookup(
     await check_monthly_quota(key_row)
 
     if len(body.lookups) > BATCH_SYNC_LIMIT:
-        # TODO: async batch with R2 storage and job polling
-        raise HTTPException(501, detail={
-            "error": "async_not_implemented",
-            "message": f"Batches over {BATCH_SYNC_LIMIT} items require async processing (coming soon). Use {BATCH_SYNC_LIMIT} or fewer for synchronous results.",
+        raise HTTPException(422, detail={
+            "error": "batch_too_large_for_sync",
+            "message": f"Batches over {BATCH_SYNC_LIMIT} items are not yet supported. Split your request into chunks of {BATCH_SYNC_LIMIT} or fewer.",
+            "your_count": len(body.lookups),
+            "max_sync": BATCH_SYNC_LIMIT,
+            "tip": "For larger batches, use POST /v1/employers/upload-csv which supports up to 500 rows.",
         })
 
     results = []

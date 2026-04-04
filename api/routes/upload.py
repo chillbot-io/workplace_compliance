@@ -93,6 +93,14 @@ async def upload_csv(
         raise HTTPException(400, detail={
             "error": "missing_columns",
             "message": f"CSV must have a name column (name, company_name, employer_name) or ein column. Found: {', '.join(reader.fieldnames)}",
+            "detected_columns": {
+                "name": name_col,
+                "ein": ein_col,
+                "state": state_col,
+                "zip": zip_col,
+                "city": city_col,
+            },
+            "accepted_name_columns": ["name", "company_name", "employer_name", "company", "employer", "business_name", "trade_name"],
         })
 
     # Read all rows
