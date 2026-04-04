@@ -10,9 +10,7 @@ export function Header() {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Check auth state by looking for cookie presence via a lightweight check
   useEffect(() => {
-    // If we're on a protected page, we must be logged in (middleware redirects otherwise)
     const protectedRoutes = ["/search", "/upload", "/account", "/employers"];
     setLoggedIn(protectedRoutes.some((r) => pathname.startsWith(r)));
   }, [pathname]);
@@ -23,51 +21,38 @@ export function Header() {
   }
 
   return (
-    <header className="border-b border-gray-200 bg-white">
+    <header className="border-b border-slate-800 bg-[#0f172a]/95 backdrop-blur-sm sticky top-0 z-50">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
-          <Link href="/" className="text-xl font-bold text-gray-900">
-            Fast<span className="text-blue-600">DOL</span>
+          <Link href="/" className="text-xl font-bold text-white">
+            Fast<span className="text-rose-500">DOL</span>
           </Link>
 
-          {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-8">
-            <Link href="/pricing" className="text-sm text-gray-600 hover:text-gray-900">
+            <Link href="/pricing" className="text-sm text-slate-400 hover:text-white transition-colors">
               Pricing
             </Link>
-            <Link href="/docs" className="text-sm text-gray-600 hover:text-gray-900">
+            <Link href="/docs" className="text-sm text-slate-400 hover:text-white transition-colors">
               Docs
             </Link>
             {loggedIn ? (
               <>
-                <Link href="/search" className="text-sm text-gray-600 hover:text-gray-900">
-                  Search
-                </Link>
-                <Link href="/account" className="text-sm text-gray-600 hover:text-gray-900">
-                  Account
-                </Link>
-                <button onClick={handleLogout} className="text-sm text-gray-600 hover:text-gray-900">
-                  Log out
-                </button>
+                <Link href="/search" className="text-sm text-slate-400 hover:text-white transition-colors">Search</Link>
+                <Link href="/account" className="text-sm text-slate-400 hover:text-white transition-colors">Account</Link>
+                <button onClick={handleLogout} className="text-sm text-slate-400 hover:text-white transition-colors">Log out</button>
               </>
             ) : (
               <>
-                <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900">
-                  Log in
-                </Link>
-                <Link
-                  href="/signup"
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                >
+                <Link href="/login" className="text-sm text-slate-400 hover:text-white transition-colors">Log in</Link>
+                <Link href="/signup" className="rounded-md bg-rose-500 px-4 py-2 text-sm font-medium text-white hover:bg-rose-600 transition-colors">
                   Get Started Free
                 </Link>
               </>
             )}
           </nav>
 
-          {/* Mobile hamburger */}
           <button
-            className="md:hidden p-2"
+            className="md:hidden p-2 text-slate-400"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle navigation menu"
             aria-expanded={mobileOpen}
@@ -82,22 +67,21 @@ export function Header() {
           </button>
         </div>
 
-        {/* Mobile menu */}
         {mobileOpen && (
           <div className="md:hidden pb-4 space-y-2">
-            <Link href="/pricing" className="block py-2 text-sm text-gray-600">Pricing</Link>
-            <Link href="/docs" className="block py-2 text-sm text-gray-600">Docs</Link>
+            <Link href="/pricing" className="block py-2 text-sm text-slate-400">Pricing</Link>
+            <Link href="/docs" className="block py-2 text-sm text-slate-400">Docs</Link>
             {loggedIn ? (
               <>
-                <Link href="/search" className="block py-2 text-sm text-gray-600">Search</Link>
-                <Link href="/upload" className="block py-2 text-sm text-gray-600">CSV Upload</Link>
-                <Link href="/account" className="block py-2 text-sm text-gray-600">Account</Link>
-                <button onClick={handleLogout} className="block py-2 text-sm text-gray-600">Log out</button>
+                <Link href="/search" className="block py-2 text-sm text-slate-400">Search</Link>
+                <Link href="/upload" className="block py-2 text-sm text-slate-400">CSV Upload</Link>
+                <Link href="/account" className="block py-2 text-sm text-slate-400">Account</Link>
+                <button onClick={handleLogout} className="block py-2 text-sm text-slate-400">Log out</button>
               </>
             ) : (
               <>
-                <Link href="/login" className="block py-2 text-sm text-gray-600">Log in</Link>
-                <Link href="/signup" className="block py-2 text-sm font-medium text-blue-600">Get Started Free</Link>
+                <Link href="/login" className="block py-2 text-sm text-slate-400">Log in</Link>
+                <Link href="/signup" className="block py-2 text-sm font-medium text-rose-500">Get Started Free</Link>
               </>
             )}
           </div>
