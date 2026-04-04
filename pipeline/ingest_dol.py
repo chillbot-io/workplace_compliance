@@ -74,30 +74,11 @@ SOURCES = {
             "bw_atp_amt", "ee_violtd_cnt", "case_id",
         ],
     },
-    "ofccp_evaluations": {
-        "path": "ofccp/compliance",
-        "sort_by": "date_resolved",
-        "page_size": 5000,
-        "fields": [
-            "contractor_name", "street", "city", "state", "zip",
-            "naics_code", "date_received", "date_resolved",
-            "resolution_type", "violations_found", "amount_of_relief",
-            "number_of_class_members",
-        ],
-    },
-    "oflc_disclosure": {
-        "path": "oflc/lca_disclosure",
-        "sort_by": "received_date",
-        "page_size": 5000,
-        "fields": [
-            "employer_name", "employer_address1", "employer_city",
-            "employer_state", "employer_postal_code", "naics_code",
-            "received_date", "decision_date", "case_status",
-            "wage_rate_of_pay_from", "prevailing_wage",
-            "total_workers", "full_time_position",
-            "visa_class", "job_title", "soc_code", "soc_title",
-        ],
-    },
+    # OFCCP and OFLC are NOT on the DOL API v4.
+    # Use separate bulk download scripts:
+    #   ingest_msha.py  — MSHA mine safety (arlweb.msha.gov)
+    #   ingest_ofccp.py — OFCCP compliance (enforcedata.dol.gov)  [TODO]
+    #   ingest_oflc.py  — OFLC labor certs (DOL data catalog)    [TODO]
 }
 
 
