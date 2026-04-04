@@ -1,163 +1,148 @@
 # FastDOL Data Pipeline Architecture
 
-## Data Sources & Update Frequency
+## Data Sources
+
+| Source | API/URL | Update Frequency | Our Schedule | Script | Records |
+|--------|---------|-----------------|-------------|--------|---------|
+| OSHA Inspections | DOL API v4 `osha/inspection` | Daily | Nightly 2AM | `ingest_dol.py osha_inspections` | ~2.5M |
+| OSHA Violations | DOL API v4 `osha/violation` | Daily | Nightly 2AM | `ingest_dol.py osha_violations` | ~400k |
+| WHD Enforcement | DOL API v4 `whd/enforcement` | Monthly | Weekly Sun 1AM | `ingest_dol.py whd_actions` | ~300k |
+| SEC Exhibit 21 (parent companies) | OpenSanctions CorpWatch | Annually (10-K filings) | Monthly 1st | `ingest_subsidiaries.py` | ~613k mappings |
+| NAICS codes | Census.gov (seed CSV) | Rarely | Bundled in repo | dbt seed `naics_2022` | 2,012 |
+
+## Pipeline Flow
 
 ```mermaid
 flowchart TB
     subgraph Sources["External Data Sources"]
-        DOL_OSHA["DOL API v4<br/>OSHA Inspections + Violations<br/>📅 Updated: Daily<br/>📊 ~2.5M inspections, ~400k violations"]
-        DOL_WHD["DOL API v4<br/>WHD Enforcement Actions<br/>📅 Updated: Monthly<br/>📊 ~300k records"]
-        SEC_EX21["OpenSanctions<br/>SEC Exhibit 21 Subsidiaries<br/>📅 Updated: Annually (10-K filings)<br/>📊 ~613k parent→subsidiary mappings"]
-        SEC_EDGAR["SEC EDGAR XBRL<br/>Company EINs<br/>📅 Updated: Annually<br/>📊 ~8k public companies"]
+        DOL_OSHA["DOL API v4<br/>OSHA Inspections + Violations"]
+        DOL_WHD["DOL API v4<br/>WHD Enforcement"]
+        SEC_EX21["OpenSanctions<br/>SEC Exhibit 21 Subsidiaries"]
     end
 
-    subgraph Ingestion["Ingestion Scripts (Pipeline Server)"]
-        ING_OSHA["ingest_dol.py osha_inspections osha_violations<br/>Burst rate limiting: 10 req/burst, 65s cooldown<br/>Checkpoint every 5k records"]
-        ING_WHD["ingest_dol.py whd_actions<br/>Page size: 1000 (WHD limit)<br/>Checkpoint every 5k records"]
-        ING_SUB["ingest_subsidiaries.py<br/>Downloads FtM JSON, extracts<br/>parent→subsidiary relationships"]
-        ING_EIN["ingest_sec_ein.py<br/>Fetches EIN from XBRL company facts<br/>Rate limit: 10 req/sec"]
+    subgraph Bronze["Bronze Layer — /data/bronze/"]
+        B_PARQUET["Raw Parquet files<br/>osha_inspections/{date}/<br/>osha_violations/{date}/<br/>whd_actions/{date}/"]
     end
 
-    subgraph Bronze["Bronze Layer (Parquet files)"]
-        B_OSHA_I["/data/bronze/osha_inspections/{date}/"]
-        B_OSHA_V["/data/bronze/osha_violations/{date}/"]
-        B_WHD["/data/bronze/whd_actions/{date}/"]
-    end
-
-    subgraph DuckDB["DuckDB (Pipeline Server)"]
-        direction TB
-        LOAD["load_bronze.py<br/>Parquet → DuckDB tables"]
+    subgraph DuckDB["DuckDB — /data/duckdb/employer_compliance.duckdb"]
+        LOAD["load_bronze.py<br/>Parquet → DuckDB raw tables"]
         PARSE["parse_addresses.py<br/>USADDRESS → address_key"]
 
         subgraph dbt["dbt Transforms"]
-            STAGING["Staging Models<br/>stg_osha_inspections<br/>stg_osha_violations<br/>stg_whd_actions"]
-            SILVER["Silver Models<br/>osha_inspection_norm<br/>whd_norm<br/>(name normalization, NAICS join)"]
-            SEEDS["Seeds<br/>naics_2022 (2,012 codes)<br/>insp_type, viol_type<br/>parent_companies (613k mappings)"]
-            GOLD["Gold Model<br/>employer_profile<br/>(risk tier, risk score, trend,<br/>confidence, SVEP, parent_name,<br/>location_count)"]
+            SEEDS["Seeds<br/>naics_2022, insp_type, viol_type<br/>parent_companies (613k)"]
+            STAGING["Staging<br/>stg_osha_inspections<br/>stg_osha_violations<br/>stg_whd_actions"]
+            SILVER["Silver<br/>osha_inspection_norm<br/>whd_norm<br/>(normalize names, NAICS join)"]
+            GOLD["Gold — employer_profile<br/>risk_tier, risk_score, trend_signal<br/>confidence_tier, svep_flag<br/>parent_name, location_count"]
         end
 
-        SPLINK["entity_resolution.py<br/>Splink probabilistic matching<br/>+ post-Splink name merge<br/>→ cluster_id_mapping"]
+        SPLINK["entity_resolution.py<br/>Splink clustering<br/>+ post-Splink name merge<br/>→ cluster_id_mapping"]
     end
 
-    subgraph Postgres["PostgreSQL (API Server via vSwitch)"]
-        SYNC["sync.py<br/>Shadow-table swap<br/>(DuckDB → Postgres via COPY)"]
-        EP["employer_profile<br/>~250k+ profiles"]
-        RS["risk_snapshots<br/>Nightly snapshots for /risk-history"]
-        VALIDATE["validate_sync.py + validate_data.py<br/>Row count verification<br/>Null rates, join rates, distributions"]
+    subgraph QualityGate["Data Quality Gate"]
+        DQ["validate_data.py<br/>Completeness, freshness,<br/>consistency, distribution,<br/>referential integrity<br/>❌ CRITICAL = blocks sync"]
     end
 
-    subgraph API["FastAPI (API Server)"]
-        SEARCH["GET /v1/employers<br/>name + zip/state/naics search"]
+    subgraph Postgres["PostgreSQL (API Server)"]
+        SYNC["sync.py<br/>Shadow-table swap<br/>(COPY + atomic RENAME)"]
+        EP["employer_profile ~250k+"]
+        RS["risk_snapshots"]
+        VALIDATE_SYNC["validate_sync.py<br/>Row count DuckDB vs Postgres"]
+    end
+
+    subgraph API["FastAPI — api.fastdol.com"]
+        SEARCH["GET /v1/employers<br/>name + zip/state/naics"]
         PARENT["GET /v1/employers/parent/{name}<br/>Parent company rollup"]
-        BATCH["POST /v1/employers/batch<br/>Bulk lookup (up to 100 sync)"]
-        UPLOAD["POST /v1/employers/upload-csv<br/>CSV bulk upload → CSV results"]
-        DETAIL["GET /v1/employers/{id}<br/>Single employer lookup"]
+        BATCH["POST /v1/employers/batch<br/>Bulk lookup (100 sync)"]
+        UPLOAD["POST /v1/employers/upload-csv<br/>CSV upload → CSV results"]
+        DETAIL["GET /v1/employers/{id}"]
+        INSPECT["GET /v1/employers/{id}/inspections"]
+        RISK["GET /v1/employers/{id}/risk-history"]
     end
 
-    %% Connections
-    DOL_OSHA --> ING_OSHA --> B_OSHA_I & B_OSHA_V
-    DOL_WHD --> ING_WHD --> B_WHD
-    SEC_EX21 --> ING_SUB --> SEEDS
-    SEC_EDGAR --> ING_EIN --> SEEDS
+    DOL_OSHA --> B_PARQUET
+    DOL_WHD --> B_PARQUET
+    SEC_EX21 --> SEEDS
 
-    B_OSHA_I & B_OSHA_V & B_WHD --> LOAD
-    LOAD --> STAGING
-    STAGING --> SILVER
-    SILVER --> SPLINK
-    SPLINK --> GOLD
+    B_PARQUET --> LOAD --> STAGING
+    SEEDS --> SILVER
     SEEDS --> GOLD
+    STAGING --> SILVER
     PARSE -.-> SILVER
+    SILVER --> SPLINK --> GOLD
 
-    GOLD --> SYNC --> EP & RS
-    SYNC --> VALIDATE
+    GOLD --> DQ
+    DQ -->|PASSED| SYNC
+    SYNC --> EP & RS
+    SYNC --> VALIDATE_SYNC
 
-    EP --> SEARCH & PARENT & BATCH & UPLOAD & DETAIL
+    EP --> SEARCH & PARENT & BATCH & UPLOAD & DETAIL & INSPECT & RISK
 ```
 
-## Pipeline Schedule
+## Nightly Pipeline Steps (run_pipeline.sh)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PIPELINE SCHEDULE                             │
-├─────────────────┬───────────────┬───────────────────────────────┤
-│ Schedule        │ Cron          │ What Runs                     │
-├─────────────────┼───────────────┼───────────────────────────────┤
-│ NIGHTLY (2 AM)  │ 0 2 * * *     │ 1. ingest_dol.py (OSHA only)  │
-│                 │               │ 2. load_bronze.py              │
-│                 │               │ 3. dbt seed + staging + silver │
-│                 │               │ 4. parse_addresses.py          │
-│                 │               │ 5. entity_resolution.py        │
-│                 │               │ 6. dbt gold                    │
-│                 │               │ 7. sync.py → Postgres          │
-│                 │               │ 8. validate_sync.py            │
-│                 │               │ 9. validate_data.py            │
-├─────────────────┼───────────────┼───────────────────────────────┤
-│ WEEKLY (Sun 1AM)│ 0 1 * * 0     │ 1. ingest_dol.py whd_actions   │
-│                 │               │ 2. load_bronze.py              │
-│                 │               │    (then nightly picks up rest) │
-├─────────────────┼───────────────┼───────────────────────────────┤
-│ MONTHLY (1st)   │ 0 0 1 * *     │ 1. ingest_subsidiaries.py      │
-│                 │               │ 2. ingest_sec_ein.py           │
-│                 │               │    (then nightly picks up rest) │
-├─────────────────┼───────────────┼───────────────────────────────┤
-│ DAILY (4 AM)    │ 0 4 * * *     │ backup.sh (pg_dump + DuckDB)   │
-├─────────────────┼───────────────┼───────────────────────────────┤
-│ DAILY (8:30 AM) │ 30 8 * * *    │ check_health.sh                │
-├─────────────────┼───────────────┼───────────────────────────────┤
-│ HOURLY          │ 0 * * * *     │ rotate_keys.py                 │
-├─────────────────┼───────────────┼───────────────────────────────┤
-│ EVERY 6 HRS     │ 0 */6 * * *   │ check_disk.sh                  │
-├─────────────────┼───────────────┼───────────────────────────────┤
-│ MONTHLY (1st)   │ 0 0 1 * *     │ reset_monthly_usage.py         │
-└─────────────────┴───────────────┴───────────────────────────────┘
-```
+| Step | Script | What it does | Failure behavior |
+|------|--------|-------------|-----------------|
+| 1 | `ingest_dol.py osha_inspections osha_violations` | Fetch new OSHA data from DOL API, write Parquet | Checkpoints every 5k records; skips bad batches after 3 retries |
+| 2 | `load_bronze.py` | Load Parquet files into DuckDB raw tables | Fails pipeline |
+| 3 | `dbt seed` + `dbt run --select staging silver` | Load seeds, run staging + silver transforms | Fails pipeline; WHD error OK if not loaded yet |
+| 4 | `parse_addresses.py` | Normalize addresses via USADDRESS | Fails pipeline |
+| 5 | `entity_resolution.py` | Splink probabilistic matching + name merge | Fails pipeline |
+| 6 | `dbt run --select gold` | Build employer_profile with risk scoring + parent matching | Fails pipeline |
+| 7 | `validate_data.py` | **Data quality gate** — checks completeness, freshness, consistency, distribution | **CRITICAL failure blocks sync** — bad data never reaches Postgres |
+| 8 | `sync.py` | Shadow-table swap: DuckDB → Postgres via COPY + atomic RENAME | Rolls back on error |
+| 9 | `validate_sync.py` | Verify row counts match between DuckDB and Postgres | Alerts but data already live |
+
+## Full Schedule
+
+| Schedule | Cron | Script | Purpose |
+|----------|------|--------|---------|
+| **Nightly** | `0 2 * * *` | `run_pipeline.sh` | OSHA ingestion → full pipeline → sync to Postgres |
+| **Weekly** | `0 1 * * 0` | `run_weekly.sh` | WHD enforcement data refresh (nightly integrates it) |
+| **Monthly** | `0 0 1 * *` | `run_monthly.sh` | SEC subsidiary data + dbt seed reload |
+| Backup | `0 4 * * *` | `backup.sh` | pg_dump + DuckDB checkpoint |
+| Health check | `30 8 * * *` | `check_health.sh` | Verify API + DB health |
+| Key rotation | `0 * * * *` | `rotate_keys.py` | Expire rotating_out keys past 48h |
+| Disk check | `0 */6 * * *` | `check_disk.sh` | Alert if disk usage high |
+| Usage reset | `5 0 1 * *` | `reset_monthly_usage.py` | Reset customer API quotas |
 
 ## Infrastructure
 
 ```
-┌─────────────────────────────────────────────────────┐
-│              Pipeline Server (AX52)                  │
-│              46.224.150.38 / 10.0.0.3                │
-│              CCX33: 8 vCPU, 32GB RAM                 │
-│                                                      │
-│  ┌─────────────────────────────────────────────┐    │
-│  │  /opt/employer-compliance/                   │    │
-│  │    pipeline/     (ingestion + ETL scripts)   │    │
-│  │    dbt/          (transforms + seeds)        │    │
-│  │    .env.pipeline (DOL_API_KEY, DB creds)     │    │
-│  └─────────────────────────────────────────────┘    │
-│                                                      │
-│  ┌─────────────────────────────────────────────┐    │
-│  │  /data/                                      │    │
-│  │    bronze/       (raw Parquet files)          │    │
-│  │    duckdb/       (employer_compliance.duckdb) │    │
-│  │    backups/      (local, 7-day retention)     │    │
-│  └─────────────────────────────────────────────┘    │
-│                                                      │
-│  Cron: run_pipeline.sh (nightly)                     │
-│         run_weekly.sh (Sundays)                      │
-│         run_monthly.sh (1st of month)                │
-└──────────────────────┬──────────────────────────────┘
-                       │ vSwitch (10.0.0.0/24)
-┌──────────────────────┴──────────────────────────────┐
-│              API Server (CPX42)                       │
-│              88.198.218.234 / 10.0.0.2               │
-│              8 vCPU, 16GB RAM                        │
-│                                                      │
-│  nginx (TLS) → FastAPI (uvicorn :8001)               │
-│  PostgreSQL 16 ← pgBouncer                           │
-│  Metabase (:3000)                                    │
-│                                                      │
-│  systemd: fastdol-api.service                        │
-└─────────────────────────────────────────────────────┘
+Pipeline Server (CCX33)                    API Server (CPX42)
+46.224.150.38 / 10.0.0.3                  88.198.218.234 / 10.0.0.2
+8 vCPU, 32GB RAM                          8 vCPU, 16GB RAM
+                                          
+/opt/employer-compliance/                  nginx (TLS) → uvicorn :8001
+  pipeline/  (ingestion + ETL)             PostgreSQL 16 ← pgBouncer
+  dbt/       (transforms + seeds)          Metabase (:3000)
+  .env.pipeline                            .env.api
+                                          
+/data/                                     systemd: fastdol-api.service
+  bronze/    (raw Parquet)                
+  duckdb/    (employer_compliance.duckdb)  
+  backups/   (7-day retention)            
+  dq_snapshots/ (daily quality metrics)   
+                                          
+Connected via Hetzner vSwitch (10.0.0.0/24)
+sync.py pushes data Pipeline → API over private network
 ```
 
-## Data Flow Summary
+## Data Quality Gate (validate_data.py)
 
-1. **Ingestion** — Scripts fetch from external APIs, write Parquet to `/data/bronze/`
-2. **Load** — `load_bronze.py` reads Parquet into DuckDB raw tables
-3. **Transform** — dbt staging (rename columns) → silver (normalize names, addresses, NAICS) → gold (aggregate by employer, risk scoring)
-4. **Entity Resolution** — Splink clusters similar establishments, `cluster_id_mapping` assigns stable UUIDs
-5. **Enrichment** — Parent company seed maps subsidiaries to parent names, NAICS seed adds industry descriptions
-6. **Sync** — Shadow-table swap: DuckDB gold → Postgres `employer_profile` via COPY + atomic RENAME
-7. **Serve** — FastAPI reads from Postgres via pgBouncer, serves search/batch/upload/parent endpoints
+Runs **before** sync. If any CRITICAL check fails, sync is blocked and customers keep yesterday's (good) data.
+
+| Check | Severity | Threshold |
+|-------|----------|-----------|
+| OSHA inspections exist | CRITICAL | > 2M records |
+| OSHA violations exist | CRITICAL | > 300k records |
+| Employer profiles exist | CRITICAL | > 200k profiles |
+| Violation→inspection join | CRITICAL | > 95% join rate |
+| All employer_ids valid UUIDs | CRITICAL | 0 invalid |
+| employer_name not null | CRITICAL | 0% null |
+| Profile count vs previous run | CRITICAL | Not dropped > 10% |
+| Latest OSHA inspection fresh | WARNING | < 6 months old |
+| Risk tier distribution stable | WARNING | < 50% swing vs previous |
+| State/zip null rates | WARNING | < 15-20% |
+| WHD actions loaded | WARNING | > 100k if present |
+
+Daily snapshots saved to `/data/dq_snapshots/` for run-over-run regression detection.
