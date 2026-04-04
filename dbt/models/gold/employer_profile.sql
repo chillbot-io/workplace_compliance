@@ -3,54 +3,109 @@
     unique_key='employer_id'
 ) }}
 
--- Gold: employer-level risk profile aggregated by Splink cluster.
--- Each cluster_id maps to a stable employer_id via cluster_id_mapping.
--- If entity resolution hasn't run yet, falls back to per-establishment profiles.
+-- Gold: employer-level risk profile using deterministic entity resolution.
+--
+-- Matching strategy (precision-first):
+--   Pass 1: Group by name_normalized + state + zip5
+--           → catches name variations (WALMART INC vs WAL-MART)
+--   Pass 2: Within same state + zip5, merge profiles sharing same address_key
+--           → catches different names at same physical location
+--           (WALMART vs WALMART SUPERCENTER 5432 at same address)
+--
+-- Each profile = one physical establishment at one address.
+-- Parent company rollup is display-only (never merges profiles).
 
-WITH cluster_map AS (
-    -- Join Splink clusters to stable employer_id UUIDs
-    SELECT
-        ec.unique_id,
-        ec.cluster_id,
-        cm.employer_id
-    FROM employer_clusters ec
-    JOIN cluster_id_mapping cm
-        ON CAST(ec.cluster_id AS VARCHAR) = CAST(cm.cluster_id AS VARCHAR)
-),
-
-osha AS (
+WITH osha AS (
     SELECT * FROM {{ ref('osha_inspection_norm') }}
+    WHERE name_normalized IS NOT NULL
+      AND name_normalized NOT IN ('UNKNOWN', 'UNKNOWN CONTRACTOR', 'UNKNOWN EMPLOYER',
+                                   'NA', 'NONE', 'TEST', 'TBD', 'NO NAME')
+      AND LENGTH(name_normalized) > 1
 ),
 
--- Join inspections to their cluster employer_id
+-- Pass 1: Assign each inspection a location_key (name + state + zip)
+osha_with_location AS (
+    SELECT
+        o.*,
+        -- Primary grouping key: normalized name + state + zip
+        name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS location_key,
+        -- Address key for pass 2 merge (may be NULL if address parsing failed)
+        address_key
+    FROM osha o
+),
+
+-- Pass 2: Find cases where different location_keys share the same address_key + state + zip
+-- These are different name variants at the same physical address
+address_merge AS (
+    SELECT
+        location_key,
+        -- Within each address_key + state + zip group, pick the location_key with most inspections
+        -- as the "canonical" key that others merge into
+        FIRST_VALUE(location_key) OVER (
+            PARTITION BY address_key, site_state, zip5
+            ORDER BY inspection_count DESC
+        ) AS canonical_key
+    FROM (
+        SELECT
+            location_key,
+            address_key,
+            site_state,
+            zip5,
+            COUNT(*) AS inspection_count
+        FROM osha_with_location
+        WHERE address_key IS NOT NULL
+        GROUP BY location_key, address_key, site_state, zip5
+    )
+),
+
+-- Build final employer_key: use canonical key from address merge, fall back to location_key
 osha_with_employer AS (
     SELECT
         o.*,
-        COALESCE(c.employer_id, CAST(o.activity_nr AS VARCHAR)) AS employer_id
-    FROM osha o
-    LEFT JOIN cluster_map c ON CAST(o.activity_nr AS VARCHAR) = CAST(c.unique_id AS VARCHAR)
+        -- Generate a deterministic UUID from the employer key
+        -- MD5 hash of the canonical grouping key → stable across pipeline runs
+        COALESCE(am.canonical_key, o.location_key) AS employer_key
+    FROM osha_with_location o
+    LEFT JOIN address_merge am ON o.location_key = am.location_key
+),
+
+-- Generate stable employer_id UUIDs from employer_key
+-- Using MD5 hash formatted as UUID for deterministic, reproducible IDs
+employer_ids AS (
+    SELECT DISTINCT
+        employer_key,
+        CAST(
+            SUBSTR(MD5(employer_key), 1, 8) || '-' ||
+            SUBSTR(MD5(employer_key), 9, 4) || '-' ||
+            SUBSTR(MD5(employer_key), 13, 4) || '-' ||
+            SUBSTR(MD5(employer_key), 17, 4) || '-' ||
+            SUBSTR(MD5(employer_key), 21, 12)
+        AS VARCHAR) AS employer_id
+    FROM osha_with_employer
 ),
 
 -- 5-year window
 osha_5yr AS (
-    SELECT * FROM osha_with_employer
-    WHERE open_date >= CURRENT_DATE - INTERVAL '5 years'
+    SELECT
+        e.*,
+        ei.employer_id
+    FROM osha_with_employer e
+    JOIN employer_ids ei ON e.employer_key = ei.employer_key
+    WHERE e.open_date >= CURRENT_DATE - INTERVAL '5 years'
 ),
 
 -- 1-year and 3-year for trend signal
 osha_1yr AS (
-    SELECT * FROM osha_with_employer WHERE open_date >= CURRENT_DATE - INTERVAL '1 year'
+    SELECT * FROM osha_5yr WHERE open_date >= CURRENT_DATE - INTERVAL '1 year'
 ),
 osha_3yr AS (
-    SELECT * FROM osha_with_employer WHERE open_date >= CURRENT_DATE - INTERVAL '3 years'
+    SELECT * FROM osha_5yr WHERE open_date >= CURRENT_DATE - INTERVAL '3 years'
 ),
 
--- Aggregate per employer_id (across all locations in the cluster)
+-- Aggregate per employer_id
 employer_osha AS (
     SELECT
         employer_id,
-        -- Use most common values for identity fields
-        -- DuckDB: use ARG_MIN to get column value from the row with most recent inspection
         ARG_MIN(estab_name, -EXTRACT(EPOCH FROM open_date)) AS employer_name,
         ARG_MIN(name_normalized, -EXTRACT(EPOCH FROM open_date)) AS name_normalized,
         ARG_MIN(site_address, -EXTRACT(EPOCH FROM open_date)) AS address,
@@ -59,7 +114,6 @@ employer_osha AS (
         ARG_MIN(zip5, -EXTRACT(EPOCH FROM open_date)) AS zip5,
         ARG_MIN(naics_code, -EXTRACT(EPOCH FROM open_date)) AS naics_code,
         ARG_MIN(naics_4digit, -EXTRACT(EPOCH FROM open_date)) AS naics_4digit,
-        -- 5yr aggregates
         COUNT(DISTINCT activity_nr) AS osha_inspections_5yr,
         SUM(violation_count) AS osha_violations_5yr,
         SUM(willful_count) AS osha_willful_count_5yr,
@@ -71,11 +125,6 @@ employer_osha AS (
         AVG(avg_gravity) AS osha_avg_gravity
     FROM osha_5yr
     WHERE employer_id IS NOT NULL
-      -- Exclude junk records with no real employer name
-      AND name_normalized IS NOT NULL
-      AND name_normalized NOT IN ('UNKNOWN', 'UNKNOWN CONTRACTOR', 'UNKNOWN EMPLOYER',
-                                   'NA', 'NONE', 'TEST', 'TBD', 'NO NAME')
-      AND LENGTH(name_normalized) > 1
     GROUP BY employer_id
 ),
 
@@ -90,15 +139,28 @@ trend_3yr AS (
     GROUP BY employer_id
 ),
 
--- WHD: aggregate wage/hour violations per employer_id (via shared Splink clusters)
--- WHD records go through entity resolution with 'whd_' prefixed unique_ids,
--- so they share cluster_ids with OSHA records for the same employer.
+-- WHD: deterministic matching to OSHA profiles by name_normalized + state + zip5
+-- WHD records join to the same employer_key as OSHA records at the same location
+whd_with_key AS (
+    SELECT
+        w.*,
+        w.name_normalized || '|' || COALESCE(w.state, '') || '|' || COALESCE(w.zip5, '') AS location_key
+    FROM {{ ref('whd_norm') }} w
+    WHERE w.name_normalized IS NOT NULL
+      AND LENGTH(w.name_normalized) > 1
+),
 whd_with_employer AS (
     SELECT
         w.*,
-        COALESCE(c.employer_id, 'whd_' || CAST(w.case_id AS VARCHAR)) AS employer_id
-    FROM {{ ref('whd_norm') }} w
-    LEFT JOIN cluster_map c ON 'whd_' || CAST(w.case_id AS VARCHAR) = c.unique_id
+        COALESCE(ei.employer_id, CAST(
+            SUBSTR(MD5(w.location_key), 1, 8) || '-' ||
+            SUBSTR(MD5(w.location_key), 9, 4) || '-' ||
+            SUBSTR(MD5(w.location_key), 13, 4) || '-' ||
+            SUBSTR(MD5(w.location_key), 17, 4) || '-' ||
+            SUBSTR(MD5(w.location_key), 21, 12)
+        AS VARCHAR)) AS employer_id
+    FROM whd_with_key w
+    LEFT JOIN employer_ids ei ON w.location_key = ei.employer_key
 ),
 whd_agg AS (
     SELECT
@@ -111,9 +173,7 @@ whd_agg AS (
     GROUP BY employer_id
 ),
 
--- Map employer names to parent companies via seed table
--- Two strategies: exact match for SEC data (613k rows, fast hash join),
--- prefix match for manual overrides (~55 rows, fast even with LIKE)
+-- Parent company matching (display-only, never merges profiles)
 parent_exact AS (
     SELECT e.employer_id, pc.parent_name
     FROM employer_osha e
@@ -135,8 +195,7 @@ parent_match AS (
     WHERE employer_id NOT IN (SELECT employer_id FROM parent_exact)
 ),
 
--- Count locations per parent (if matched) or per normalized name (if not)
--- This gives "347 Walmart locations" instead of "12 WALMART STORE" locations
+-- Location count per parent or per normalized name
 location_counts AS (
     SELECT
         e.employer_id,
@@ -149,12 +208,12 @@ location_counts AS (
 SELECT
     e.*,
 
-    -- WHD fields (matched by name + state, may be NULL if no WHD data)
+    -- WHD fields
     COALESCE(w.whd_cases_5yr, 0) AS whd_cases_5yr,
     COALESCE(w.whd_backwages_total, 0) AS whd_backwages_total,
     COALESCE(w.whd_ee_violated_total, 0) AS whd_ee_violated_total,
 
-    -- Parent company name (NULL if no parent match — this is a standalone employer)
+    -- Parent company name (display-only)
     pm.parent_name,
 
     -- Related locations sharing same parent or normalized name
@@ -179,18 +238,12 @@ SELECT
     END AS risk_tier,
 
     -- Risk score (0-100 weighted sum, combines OSHA + WHD)
-    -- Weights based on OSHA's own penalty ratios:
-    --   Willful/Repeat max penalty = $165,514 (10x serious)
-    --   Serious max penalty = $16,550 (1x baseline)
-    --   Other = $16,550 but lower gravity
     LEAST(100, GREATEST(0,
-        -- OSHA components (up to ~85 points)
         LEAST(50, COALESCE(e.osha_willful_count_5yr, 0) * 30)
       + LEAST(30, COALESCE(e.osha_repeat_count_5yr, 0) * 15)
       + LEAST(20, COALESCE(e.osha_serious_count_5yr, 0) * 3)
       + LEAST(5, COALESCE(e.osha_other_count_5yr, 0) * 0.5)
       + LEAST(15, COALESCE(e.osha_penalty_total_5yr, 0) / 10000.0)
-        -- WHD components (up to ~15 points)
       + LEAST(8, COALESCE(w.whd_backwages_total, 0) / 10000.0)
       + LEAST(4, COALESCE(w.whd_cases_5yr, 0) * 1.5)
       + LEAST(3, COALESCE(w.whd_ee_violated_total, 0) / 25.0)
@@ -205,19 +258,14 @@ SELECT
         ELSE 'STABLE'
     END AS trend_signal,
 
-    -- Confidence tier — how confident are we in this employer's identity?
+    -- Confidence tier
     CASE
         WHEN e.osha_inspections_5yr >= 3 THEN 'HIGH'
         WHEN e.osha_inspections_5yr >= 1 THEN 'MEDIUM'
         ELSE 'LOW'
     END AS confidence_tier,
 
-    -- SVEP flag (OSHA Severe Violator Enforcement Program)
-    -- Criteria based on OSHA's actual SVEP designation:
-    -- 1. Any willful or repeat violation
-    -- 2. High-gravity serious violations with fatality/catastrophe inspection
-    -- 3. Repeat serious violations (3+)
-    -- We flag employers meeting criteria 1 or 3 (no fatality data in current dataset)
+    -- SVEP flag
     CASE
         WHEN COALESCE(e.osha_willful_count_5yr, 0) >= 1 THEN true
         WHEN COALESCE(e.osha_repeat_count_5yr, 0) >= 1 THEN true
