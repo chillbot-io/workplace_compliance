@@ -29,7 +29,6 @@ def sync():
 
     # Read Gold employer profiles
     df = duck.execute("SELECT * FROM employer_profile").df()
-    duck.close()
 
     if df.empty:
         print("ERROR: employer_profile is empty in DuckDB — aborting sync", file=sys.stderr)
@@ -158,6 +157,7 @@ def sync():
     finally:
         cur.close()
         conn.close()
+        duck.close()
 
 
 def sync_inspection_detail(duck, conn, pipeline_run_id):
