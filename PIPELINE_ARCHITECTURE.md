@@ -119,21 +119,24 @@ OSHA and WHD records are combined into a single `er_input` table before Splink c
 
 Risk score (0-100) combines OSHA and WHD signals:
 
-**OSHA components (up to ~80 points):**
-| Signal | Points |
-|--------|--------|
-| Willful violations | 25 per violation |
-| Repeat violations | 10 per violation |
-| Serious violations | 5 per violation |
-| Other violations | 1 per violation |
-| Total penalties | up to 20 (penalties / $10k) |
+**OSHA components (up to ~85 points):**
 
-**WHD components (up to ~20 points):**
-| Signal | Points |
-|--------|--------|
-| Back wages owed | up to 10 (backwages / $10k) |
-| WHD cases | up to 5 (cases × 2) |
-| Employees violated | up to 5 (employees / 20) |
+Weights calibrated to OSHA's own penalty ratios (willful/repeat max $165,514 = 10x serious max $16,550).
+
+| Signal | Points per | Cap | Rationale |
+|--------|-----------|-----|-----------|
+| Willful violations | 30 | 50 | Deliberate disregard for safety — 10x serious |
+| Repeat violations | 15 | 30 | Organizational failure to correct — 5x serious |
+| Serious violations | 3 | 20 | Hazard likely to cause injury — baseline |
+| Other violations | 0.5 | 5 | Procedural/documentation — low severity |
+| Total penalties ($) | penalty/$10k | 15 | Dollar amount reflects OSHA's gravity assessment |
+
+**WHD components (up to ~15 points):**
+| Signal | Points per | Cap | Rationale |
+|--------|-----------|-----|-----------|
+| Back wages owed ($) | backwages/$10k | 8 | Dollar magnitude of wage theft |
+| WHD cases | 1.5 per case | 4 | Frequency of enforcement actions |
+| Employees violated | employees/25 | 3 | Scale of worker impact |
 
 **Risk tiers:**
 | Tier | Criteria |
