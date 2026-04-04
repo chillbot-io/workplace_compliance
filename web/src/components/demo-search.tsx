@@ -33,6 +33,7 @@ export function DemoSearch() {
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [searched, setSearched] = useState(false);
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -57,6 +58,7 @@ export function DemoSearch() {
 
       setResults(data.results || []);
       setTotalCount(data.total_count || 0);
+      setSearched(true);
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
@@ -72,6 +74,7 @@ export function DemoSearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Employer name (e.g., Walmart, Amazon)"
+          aria-label="Employer name"
           className="flex-1 rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
         />
         <input
@@ -79,6 +82,7 @@ export function DemoSearch() {
           value={zip}
           onChange={(e) => setZip(e.target.value)}
           placeholder="ZIP (optional)"
+          aria-label="ZIP code"
           className="w-full sm:w-28 rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
           maxLength={5}
         />
@@ -151,7 +155,7 @@ export function DemoSearch() {
         </div>
       )}
 
-      {results.length === 0 && !loading && !error && query && (
+      {results.length === 0 && !loading && !error && searched && (
         <div className="mt-6 text-center text-sm text-gray-500">
           No results. Try a different name or remove the ZIP filter.
         </div>

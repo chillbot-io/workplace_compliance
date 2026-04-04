@@ -17,7 +17,7 @@ export function Footer() {
             <h3 className="text-sm font-semibold text-gray-900">Developers</h3>
             <ul className="mt-4 space-y-2">
               <li><Link href="/docs" className="text-sm text-gray-600 hover:text-gray-900">API Docs</Link></li>
-              <li><a href="https://api.fastdol.com/v1/health" target="_blank" className="text-sm text-gray-600 hover:text-gray-900">API Status</a></li>
+              <li><a href="https://api.fastdol.com/v1/health" target="_blank" rel="noopener noreferrer" className="text-sm text-gray-600 hover:text-gray-900">API Status</a></li>
             </ul>
           </div>
           <div>

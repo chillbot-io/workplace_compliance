@@ -4,11 +4,11 @@ export default function DocsPage() {
       <h1 className="text-3xl font-bold text-gray-900 mb-4">API Documentation</h1>
 
       <div className="flex gap-4 mb-8">
-        <a href="https://api.fastdol.com/docs" target="_blank"
+        <a href="https://api.fastdol.com/docs" target="_blank" rel="noopener noreferrer"
           className="rounded-md bg-blue-50 border border-blue-200 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
           Interactive API (Swagger)
         </a>
-        <a href="https://api.fastdol.com/redoc" target="_blank"
+        <a href="https://api.fastdol.com/redoc" target="_blank" rel="noopener noreferrer"
           className="rounded-md bg-gray-50 border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100">
           API Reference (ReDoc)
         </a>
