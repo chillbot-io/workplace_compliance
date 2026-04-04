@@ -12,7 +12,6 @@
 
 SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
-ALERT_WEBHOOK_URL=
 
 # ── Data Pipeline ──────────────────────────────────────────────
 
