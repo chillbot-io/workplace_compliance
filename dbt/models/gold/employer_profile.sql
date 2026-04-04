@@ -19,8 +19,9 @@ WITH osha AS (
     SELECT * FROM {{ ref('osha_inspection_norm') }}
     WHERE name_normalized IS NOT NULL
       AND name_normalized NOT IN ('UNKNOWN', 'UNKNOWN CONTRACTOR', 'UNKNOWN EMPLOYER',
+                                   'UNKNOWNINVALID ESTABLISHMENT', 'INVALID ESTABLISHMENT',
                                    'NA', 'NONE', 'TEST', 'TBD', 'NO NAME')
-      AND LENGTH(name_normalized) > 1
+      AND LENGTH(name_normalized) > 2
 ),
 
 -- Pass 1: Assign each inspection a location_key (name + state + zip)
@@ -239,28 +240,21 @@ oflc_agg AS (
 ),
 
 -- Parent company matching (display-only, never merges profiles)
-parent_exact AS (
-    SELECT e.employer_id, pc.parent_name
+-- Curated list of ~90 national chains with prefix matching
+-- Small enough that LIKE scan is instant
+parent_raw AS (
+    SELECT e.employer_id, pc.parent_name,
+           -- Rank by longest pattern match (more specific = better)
+           ROW_NUMBER() OVER (
+               PARTITION BY e.employer_id
+               ORDER BY LENGTH(pc.name_pattern) DESC
+           ) AS rn
     FROM employer_osha e
-    INNER JOIN {{ ref('parent_companies') }} pc
-        ON e.name_normalized = pc.name_pattern
-        AND pc.match_type = 'exact'
-),
-parent_prefix AS (
-    SELECT e.employer_id, pc.parent_name
-    FROM employer_osha e
-    INNER JOIN {{ ref('parent_companies') }} pc
+    INNER JOIN parent_companies pc
         ON e.name_normalized LIKE pc.name_pattern || '%'
-        AND pc.match_type = 'prefix'
-),
-parent_combined AS (
-    SELECT employer_id, parent_name FROM parent_exact
-    UNION ALL
-    SELECT employer_id, parent_name FROM parent_prefix
-    WHERE employer_id NOT IN (SELECT employer_id FROM parent_exact)
 ),
 parent_match AS (
-    SELECT DISTINCT employer_id, parent_name FROM parent_combined
+    SELECT employer_id, parent_name FROM parent_raw WHERE rn = 1
 ),
 
 -- Location count per parent or per normalized name
