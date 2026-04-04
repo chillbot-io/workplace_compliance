@@ -48,4 +48,4 @@ SELECT
     v.avg_gravity
 FROM inspections i
 LEFT JOIN violation_agg v ON i.activity_nr = v.activity_nr
-LEFT JOIN osha_address_keys pa ON i.site_address = pa.raw_address
+LEFT JOIN osha_address_keys pa ON CAST(i.activity_nr AS VARCHAR) = CAST(pa.activity_nr AS VARCHAR)
