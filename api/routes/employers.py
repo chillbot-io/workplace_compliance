@@ -119,7 +119,7 @@ async def search_employers(
             extra_where = (" AND " + " AND ".join(filter_clauses)) if filter_clauses else ""
 
             # Use lower threshold for short names (< 6 chars get penalized by pg_trgm)
-            sim_threshold = 0.1 if len(name) < 6 else 0.15
+            sim_threshold = 0.15 if len(name) < 6 else 0.25
 
             # Count total matches
             count = await con.fetchval(f"""
@@ -131,7 +131,7 @@ async def search_employers(
                 ) sub
             """, *params)
 
-            # Fetch page of results sorted by risk_score desc
+            # Fetch page of results sorted by best name match first, then risk score
             rows = await con.fetch(f"""
                 SELECT * FROM (
                     SELECT DISTINCT ON (employer_id) *,
@@ -140,7 +140,7 @@ async def search_employers(
                     WHERE similarity(employer_name, $1) > {sim_threshold}{extra_where}
                     ORDER BY employer_id, snapshot_date DESC
                 ) sub
-                ORDER BY risk_score DESC NULLS LAST
+                ORDER BY sim_score DESC, risk_score DESC NULLS LAST
                 LIMIT ${param_idx} OFFSET ${param_idx + 1}
             """, *params, limit, offset)
 
