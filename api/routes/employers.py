@@ -752,4 +752,9 @@ def _format_results(rows, total_count: int, limit: int, offset: int) -> dict:
         "total_count": total_count,
         "limit": limit,
         "offset": offset,
+        "data_notes": {
+            "freshness": "OSHA citations typically appear 3-8 months after inspection date. WHD data updates monthly.",
+            "coverage": "Data includes OSHA inspections/violations and WHD wage enforcement actions since FY2005.",
+            "scoring": "Risk scores combine OSHA violation severity (willful, repeat, serious) and WHD back wages. See /v1/health for data age.",
+        },
     }

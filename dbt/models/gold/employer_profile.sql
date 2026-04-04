@@ -179,17 +179,21 @@ SELECT
     END AS risk_tier,
 
     -- Risk score (0-100 weighted sum, combines OSHA + WHD)
+    -- Weights based on OSHA's own penalty ratios:
+    --   Willful/Repeat max penalty = $165,514 (10x serious)
+    --   Serious max penalty = $16,550 (1x baseline)
+    --   Other = $16,550 but lower gravity
     LEAST(100, GREATEST(0,
-        -- OSHA components (up to ~80 points)
-        COALESCE(e.osha_willful_count_5yr, 0) * 25
-      + COALESCE(e.osha_repeat_count_5yr, 0) * 10
-      + COALESCE(e.osha_serious_count_5yr, 0) * 5
-      + COALESCE(e.osha_other_count_5yr, 0) * 1
-      + LEAST(20, COALESCE(e.osha_penalty_total_5yr, 0) / 10000.0)
-        -- WHD components (up to ~20 points)
-      + LEAST(10, COALESCE(w.whd_backwages_total, 0) / 10000.0)
-      + LEAST(5, COALESCE(w.whd_cases_5yr, 0) * 2.0)
-      + LEAST(5, COALESCE(w.whd_ee_violated_total, 0) / 20.0)
+        -- OSHA components (up to ~85 points)
+        LEAST(50, COALESCE(e.osha_willful_count_5yr, 0) * 30)
+      + LEAST(30, COALESCE(e.osha_repeat_count_5yr, 0) * 15)
+      + LEAST(20, COALESCE(e.osha_serious_count_5yr, 0) * 3)
+      + LEAST(5, COALESCE(e.osha_other_count_5yr, 0) * 0.5)
+      + LEAST(15, COALESCE(e.osha_penalty_total_5yr, 0) / 10000.0)
+        -- WHD components (up to ~15 points)
+      + LEAST(8, COALESCE(w.whd_backwages_total, 0) / 10000.0)
+      + LEAST(4, COALESCE(w.whd_cases_5yr, 0) * 1.5)
+      + LEAST(3, COALESCE(w.whd_ee_violated_total, 0) / 25.0)
     )) AS risk_score,
 
     -- Trend signal
