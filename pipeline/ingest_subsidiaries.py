@@ -253,14 +253,9 @@ def main():
             .str.replace("#", "", regex=False)
         )
 
-    # Verify no problematic characters remain
-    for col in ["name_pattern", "parent_name"]:
-        bad = df[col].str.contains(r"[,'\"\\\#]", regex=True, na=False)
-        if bad.any():
-            print(f"  WARNING: {bad.sum()} rows in {col} still have special chars, dropping them")
-            df = df[~bad]
-
-    # Save as dbt seed
+    # Save as dbt seed — use default pandas quoting (QUOTE_MINIMAL)
+    # This quotes fields containing commas/quotes, which DuckDB handles fine
+    # (it worked for the initial 613k load before we added match_type)
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUTPUT_PATH, index=False)
     print(f"\nSaved {len(df)} mappings to {OUTPUT_PATH}")
