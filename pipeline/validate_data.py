@@ -87,10 +87,8 @@ def main():
              f"got {profile_count:,} (expected >150k)")
     info("employer_profile_count", profile_count)
 
-    # Entity resolution — clusters should exist
-    cluster_count = safe_count(con, "cluster_id_mapping")
-    critical("cluster_id_mapping populated", cluster_count > 0,
-             f"got {cluster_count:,}")
+    # Entity resolution — deterministic matching produces profiles directly
+    # No separate cluster table needed anymore
 
     # ─── 2. FRESHNESS ────────────────────────────────────────
 
@@ -134,12 +132,12 @@ def main():
     except Exception as e:
         warning("Violation join check", False, str(e))
 
-    # Profile count vs cluster count — profiles shouldn't exceed clusters
-    if profile_count > 0 and cluster_count > 0:
-        ratio = profile_count / cluster_count
-        warning("Profile/cluster ratio reasonable",
-                0.1 < ratio < 2.0,
-                f"ratio={ratio:.2f} ({profile_count:,} profiles / {cluster_count:,} clusters)")
+    # Profile count sanity — should be reasonable relative to inspection count
+    if profile_count > 0 and osha_count > 0:
+        ratio = osha_count / profile_count
+        warning("Inspections-per-profile ratio reasonable (2-20x)",
+                2 < ratio < 20,
+                f"ratio={ratio:.1f}x ({osha_count:,} inspections / {profile_count:,} profiles)")
 
     # Null rates on critical fields
     if profile_count > 0:

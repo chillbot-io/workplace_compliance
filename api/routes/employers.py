@@ -140,7 +140,7 @@ async def search_employers(
                     WHERE similarity(employer_name, $1) > {sim_threshold}{extra_where}
                     ORDER BY employer_id, snapshot_date DESC
                 ) sub
-                ORDER BY sim_score DESC, risk_score DESC NULLS LAST
+                ORDER BY sim_score DESC, risk_score DESC NULLS LAST, osha_inspections_5yr DESC NULLS LAST
                 LIMIT ${param_idx} OFFSET ${param_idx + 1}
             """, *params, limit, offset)
 
@@ -380,18 +380,18 @@ async def get_inspections(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """Get inspection history for an employer. Free — not metered."""
+    """Get inspection history with violation detail for an employer. Free — not metered."""
     async with get_pool().acquire() as con:
         rows = await con.fetch("""
-            SELECT * FROM inspection_history
-            WHERE employer_id = $1::uuid
-            ORDER BY inspection_date DESC
+            SELECT * FROM inspection_detail
+            WHERE employer_id = $1
+            ORDER BY open_date DESC
             LIMIT $2 OFFSET $3
         """, employer_id, limit, offset)
 
         total = await con.fetchval("""
-            SELECT COUNT(*) FROM inspection_history
-            WHERE employer_id = $1::uuid
+            SELECT COUNT(*) FROM inspection_detail
+            WHERE employer_id = $1
         """, employer_id)
 
     return JSONResponse(
@@ -402,6 +402,48 @@ async def get_inspections(
                 "limit": limit,
                 "offset": offset,
             },
+        },
+        headers={"X-Billing-Note": "not-metered"},
+    )
+
+
+@router.get("/inspections/{activity_nr}/violations")
+async def get_violations(
+    activity_nr: str,
+    key_row=Depends(check_scope("employer:read")),
+):
+    """Get violation detail for a specific inspection. Free — not metered."""
+    async with get_pool().acquire() as con:
+        rows = await con.fetch("""
+            SELECT citation_id, viol_type, gravity, nr_instances,
+                   initial_penalty, current_penalty, abate_date, issuance_date
+            FROM violation_detail
+            WHERE activity_nr = $1
+            ORDER BY issuance_date DESC NULLS LAST
+        """, activity_nr)
+
+        # Also get inspection summary
+        insp = await con.fetchrow("""
+            SELECT * FROM inspection_detail
+            WHERE activity_nr = $1
+        """, activity_nr)
+
+    viol_type_labels = {
+        "W": "Willful", "R": "Repeat", "S": "Serious",
+        "O": "Other", "U": "Unclassified",
+    }
+
+    return JSONResponse(
+        content={
+            "inspection": json.loads(json.dumps(dict(insp), cls=CustomEncoder)) if insp else None,
+            "violations": [
+                {
+                    **json.loads(json.dumps(dict(r), cls=CustomEncoder)),
+                    "viol_type_label": viol_type_labels.get(r.get("viol_type"), r.get("viol_type")),
+                }
+                for r in rows
+            ],
+            "total_violations": len(rows),
         },
         headers={"X-Billing-Note": "not-metered"},
     )

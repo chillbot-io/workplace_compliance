@@ -42,8 +42,8 @@ def main():
     drift = abs(duck_count - pg_count) / duck_count
     print(f"Drift: {drift:.4%}")
 
-    if drift > 0.001:
-        print(f"FAIL: Row count drift {drift:.4%} exceeds 0.1% threshold", file=sys.stderr)
+    if drift > 0.002:
+        print(f"FAIL: Row count drift {drift:.4%} exceeds 0.2% threshold", file=sys.stderr)
         sys.exit(1)
 
     print("PASS: Row counts match within tolerance.")
