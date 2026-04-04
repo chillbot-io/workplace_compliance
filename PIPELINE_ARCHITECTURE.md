@@ -29,13 +29,13 @@ flowchart TB
         PARSE["parse_addresses.py<br/>USADDRESS → address_key"]
 
         subgraph dbt["dbt Transforms"]
-            SEEDS["Seeds<br/>naics_2022, insp_type, viol_type<br/>parent_companies (613k)"]
-            STAGING["Staging<br/>stg_osha_inspections<br/>stg_osha_violations<br/>stg_whd_actions"]
+            SEEDS["Seeds<br/>naics_2022, insp_type, viol_type<br/>parent_companies (613k via load_parent_companies.py)"]
+            STAGING["Staging<br/>stg_osha_inspections<br/>stg_osha_violations<br/>stg_whd_actions (empty stub if WHD not loaded)"]
             SILVER["Silver<br/>osha_inspection_norm<br/>whd_norm<br/>(normalize names, NAICS join)"]
-            GOLD["Gold — employer_profile<br/>risk_tier, risk_score, trend_signal<br/>confidence_tier, svep_flag<br/>parent_name, location_count"]
+            GOLD["Gold — employer_profile<br/>OSHA + WHD risk scoring<br/>risk_tier, risk_score, trend_signal<br/>confidence_tier, svep_flag<br/>parent_name, location_count<br/>whd_cases_5yr, whd_backwages_total"]
         end
 
-        SPLINK["entity_resolution.py<br/>Splink clustering<br/>+ post-Splink name merge<br/>→ cluster_id_mapping"]
+        SPLINK["entity_resolution.py<br/>Splink clustering on OSHA + WHD<br/>(unified er_input with source tag)<br/>+ post-Splink name merge<br/>→ cluster_id_mapping"]
     end
 
     subgraph QualityGate["Data Quality Gate"]
@@ -84,13 +84,64 @@ flowchart TB
 |------|--------|-------------|-----------------|
 | 1 | `ingest_dol.py osha_inspections osha_violations` | Fetch new OSHA data from DOL API, write Parquet | Checkpoints every 5k records; skips bad batches after 3 retries |
 | 2 | `load_bronze.py` | Load Parquet files into DuckDB raw tables | Fails pipeline |
-| 3 | `dbt seed` + `dbt run --select staging silver` | Load seeds, run staging + silver transforms | Fails pipeline; WHD error OK if not loaded yet |
+| 3 | `dbt seed` + `dbt run --select staging silver` | Load seeds, run staging + silver transforms | Fails pipeline; WHD stub returns empty if not loaded yet |
 | 4 | `parse_addresses.py` | Normalize addresses via USADDRESS | Fails pipeline |
-| 5 | `entity_resolution.py` | Splink probabilistic matching + name merge | Fails pipeline |
-| 6 | `dbt run --select gold` | Build employer_profile with risk scoring + parent matching | Fails pipeline |
+| 5 | `entity_resolution.py` | Splink on OSHA + WHD combined, then name merge | Fails pipeline |
+| 6 | `dbt run --select gold` | Build employer_profile with OSHA+WHD risk scoring + parent matching | Fails pipeline |
 | 7 | `validate_data.py` | **Data quality gate** — checks completeness, freshness, consistency, distribution | **CRITICAL failure blocks sync** — bad data never reaches Postgres |
 | 8 | `sync.py` | Shadow-table swap: DuckDB → Postgres via COPY + atomic RENAME | Rolls back on error |
 | 9 | `validate_sync.py` | Verify row counts match between DuckDB and Postgres | Alerts but data already live |
+
+## Entity Resolution
+
+OSHA and WHD records are combined into a single `er_input` table before Splink clustering:
+
+| Field | OSHA Source | WHD Source |
+|-------|------------|-----------|
+| unique_id | `activity_nr` | `whd_` + `case_id` |
+| source | `OSHA` | `WHD` |
+| name_normalized | From silver normalize_name() | From silver normalize_name() |
+| name_prefix | First 4 chars of name_normalized | First 4 chars of name_normalized |
+| zip5 | `site_zip` → 5 digits | `zip_cd` → 5 digits |
+| site_state | `site_state` | `st_cd` |
+| naics_4digit | From OSHA data | NULL (WHD doesn't have NAICS codes) |
+
+**Blocking rules** (which record pairs to compare):
+1. Same `zip5`
+2. Same `site_state` + same `name_prefix`
+3. Same `name_prefix` + same `naics_4digit`
+
+**Post-Splink name merge**: After clustering, clusters sharing the same `name_normalized` are merged. This handles national chains across states.
+
+**Result**: A Walmart OSHA inspection and a Walmart WHD wage theft case at the same location get the same `employer_id`. Both contribute to that location's risk score.
+
+## Risk Scoring
+
+Risk score (0-100) combines OSHA and WHD signals:
+
+**OSHA components (up to ~80 points):**
+| Signal | Points |
+|--------|--------|
+| Willful violations | 25 per violation |
+| Repeat violations | 10 per violation |
+| Serious violations | 5 per violation |
+| Other violations | 1 per violation |
+| Total penalties | up to 20 (penalties / $10k) |
+
+**WHD components (up to ~20 points):**
+| Signal | Points |
+|--------|--------|
+| Back wages owed | up to 10 (backwages / $10k) |
+| WHD cases | up to 5 (cases × 2) |
+| Employees violated | up to 5 (employees / 20) |
+
+**Risk tiers:**
+| Tier | Criteria |
+|------|----------|
+| HIGH | Willful violation, 3+ repeat violations, >$100k OSHA penalties, >$100k back wages, or >100 employees violated |
+| ELEVATED | 5+ inspections with 10+ violations, or 3+ WHD cases with >$10k back wages |
+| MEDIUM | 10+ violations, 2-4 inspections, 3-9 violations, or 2+ WHD cases |
+| LOW | Everything else |
 
 ## Full Schedule
 
