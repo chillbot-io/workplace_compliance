@@ -1,20 +1,19 @@
 # FastDOL Transition Document
 
 **Date:** April 5, 2026
-**Session:** Claude Code session_01Sp4DDSTfgDuwrNDvZQ45N6
+**Sessions:** Claude Code session_01Sp4DDSTfgDuwrNDvZQ45N6
 **Purpose:** Complete context transfer for continuing development
 
 ---
 
-## 1. What FastDOL Is
+## 1. Current State
 
-FastDOL is a B2B data API that aggregates federal DOL (Department of Labor) enforcement data into normalized employer risk profiles. Customers query by employer name, zip, or state and get back risk scores, inspection history, and violation detail.
-
-**Target buyers:** Insurance underwriters, staffing agencies, compliance consultants, supply chain teams.
-
-**Live at:**
-- Website: https://www.fastdol.com (Vercel, dark navy theme)
-- API: https://api.fastdol.com
+- **2,163,628 employer profiles** in Postgres, live at api.fastdol.com
+- **Entity resolution:** name_normalized + state + zip5 (deterministic, no Splink)
+- **All-time aggregation** with time-decay risk scoring
+- **Data sources:** OSHA (2.5M inspections, 1.8M violations), WHD (355K), MSHA (3M violations)
+- **Website:** live at www.fastdol.com (Vercel, dark navy/violet theme)
+- **38,055 parent company matches** via 136-entry curated seed
 
 ---
 
@@ -101,11 +100,11 @@ FastDOL is a B2B data API that aggregates federal DOL (Department of Labor) enfo
 ## 3. What Needs to Be Done Next (Morning Session)
 
 ### P0 — Must fix before launch
-1. **Ground truth validation** — run `validate_ground_truth.py`, manually check 10+ employers against osha.gov. Nobody has verified our data against the source yet.
-2. **MSHA columns in Postgres sync** — `sync.py` doesn't push `msha_violations` or `msha_assessed_penalties`. API returns zeros for everyone.
+1. **Ground truth validation** — Tesla CA checked: 26 on OSHA.gov vs 27 in our system (spot on). Thomas Builders VA: data is complete but fragmented by name variant. Need to check 5-10 more employers.
+2. **OSHA ITA data for EIN** — download from osha.gov/Establishment-Specific-Injury-and-Illness-Data. Has EIN for large employers (250+ employees). Would solve entity resolution for multi-location companies.
 3. **End-to-end signup flow test** — nobody has actually signed up, verified email, got API key, and searched through the website.
 4. **ENV=production on API server** — verify test keys are blocked.
-5. **Deploy latest code** — API server needs git pull + restart. Vercel needs merge to main.
+5. **Change default passwords** (password1/2/3 in Postgres)
 
 ### P1 — Before launch
 6. **Change default passwords** (password1/2/3 in Postgres)
@@ -116,11 +115,20 @@ FastDOL is a B2B data API that aggregates federal DOL (Department of Labor) enfo
 
 ### P2 — After launch
 11. **OFCCP + OFLC data** — find download URLs on data.dol.gov
-12. **More parent company entries** — auto-detect from data
-13. **MSHA geocoding** — map lat/long to zip5 for better matching
-14. **HIL review queue UI** — for edge case review
-15. **Python SDK**
-16. **Grafana monitoring**
+12. **EIN bridge table** — from OSHA ITA data + potentially commercial source (Judy Diamond has 14M EINs, targets insurance industry)
+13. **More parent company entries** — auto-detect from data
+14. **MSHA geocoding** — map lat/long to zip5 for better matching
+15. **HIL review queue UI** — for edge case review
+16. **Python SDK**
+17. **Grafana monitoring**
+
+### Key architectural decisions made this session
+- **Splink removed** — replaced with deterministic name+state+zip matching. Splink had 60-76% precision.
+- **Address merge removed** — was falsely merging different businesses at same physical address (Las Vegas hotel had 114 companies merged into one profile).
+- **Name+state attempted and reverted** — merged all locations state-wide which is wrong for retail. Name+state+zip is correct.
+- **All-time aggregation** — no 5-year window. Full history with time-decay scoring.
+- **Multi-source profiles** — profiles created from OSHA AND WHD data. WHD-only employers are visible.
+- **EIN is the key gap** — without EIN, name variants of the same company create separate profiles. OSHA ITA data may help (has EIN since 2019 for 250+ employee establishments).
 
 ---
 
