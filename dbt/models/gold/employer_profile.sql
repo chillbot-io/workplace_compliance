@@ -83,13 +83,13 @@ osha_agg AS (
         ARG_MIN(ok.site_city, -EXTRACT(EPOCH FROM ok.open_date)) AS city,
         ARG_MIN(ok.naics_code, -EXTRACT(EPOCH FROM ok.open_date)) AS naics_code,
         ARG_MIN(LEFT(ok.naics_code, 4), -EXTRACT(EPOCH FROM ok.open_date)) AS naics_4digit,
-        COUNT(DISTINCT ok.activity_nr) AS osha_inspections_5yr,
-        SUM(ok.violation_count) AS osha_violations_5yr,
-        SUM(ok.willful_count) AS osha_willful_count_5yr,
-        SUM(ok.repeat_count) AS osha_repeat_count_5yr,
-        SUM(ok.serious_count) AS osha_serious_count_5yr,
-        SUM(ok.other_count) AS osha_other_count_5yr,
-        SUM(ok.total_penalties) AS osha_penalty_total_5yr,
+        COUNT(DISTINCT ok.activity_nr) AS osha_inspections,
+        SUM(ok.violation_count) AS osha_violations,
+        SUM(ok.willful_count) AS osha_willful_count,
+        SUM(ok.repeat_count) AS osha_repeat_count,
+        SUM(ok.serious_count) AS osha_serious_count,
+        SUM(ok.other_count) AS osha_other_count,
+        SUM(ok.total_penalties) AS osha_total_penalties,
         MAX(ok.open_date) AS osha_last_inspection_date,
         AVG(ok.avg_gravity) AS osha_avg_gravity
     FROM osha_with_key ok
@@ -120,7 +120,7 @@ whd_agg AS (
         ARG_MIN(employer_name, -EXTRACT(EPOCH FROM findings_end_date)) AS whd_employer_name,
         ARG_MIN(address, -EXTRACT(EPOCH FROM findings_end_date)) AS whd_address,
         ARG_MIN(city, -EXTRACT(EPOCH FROM findings_end_date)) AS whd_city,
-        COUNT(DISTINCT case_id) AS whd_cases_5yr,
+        COUNT(DISTINCT case_id) AS whd_cases,
         SUM(backwages) AS whd_backwages_total,
         SUM(employees_violated) AS whd_ee_violated_total
     FROM whd_with_key
@@ -132,7 +132,7 @@ msha_agg AS (
     SELECT
         mk.name_normalized,
         mk.state,
-        COUNT(DISTINCT mk.violation_no) AS msha_violations_5yr,
+        COUNT(DISTINCT mk.violation_no) AS msha_violations,
         SUM(mk.proposed_penalty) AS msha_assessed_penalties
     FROM {{ ref('msha_violation_norm') }} mk
     WHERE mk.name_normalized IS NOT NULL
@@ -158,21 +158,21 @@ employer_base AS (
         oa.naics_code,
         oa.naics_4digit,
         -- OSHA fields (0 if no OSHA data)
-        COALESCE(oa.osha_inspections_5yr, 0) AS osha_inspections_5yr,
-        COALESCE(oa.osha_violations_5yr, 0) AS osha_violations_5yr,
-        COALESCE(oa.osha_willful_count_5yr, 0) AS osha_willful_count_5yr,
-        COALESCE(oa.osha_repeat_count_5yr, 0) AS osha_repeat_count_5yr,
-        COALESCE(oa.osha_serious_count_5yr, 0) AS osha_serious_count_5yr,
-        COALESCE(oa.osha_other_count_5yr, 0) AS osha_other_count_5yr,
-        COALESCE(oa.osha_penalty_total_5yr, 0) AS osha_penalty_total_5yr,
+        COALESCE(oa.osha_inspections, 0) AS osha_inspections,
+        COALESCE(oa.osha_violations, 0) AS osha_violations,
+        COALESCE(oa.osha_willful_count, 0) AS osha_willful_count,
+        COALESCE(oa.osha_repeat_count, 0) AS osha_repeat_count,
+        COALESCE(oa.osha_serious_count, 0) AS osha_serious_count,
+        COALESCE(oa.osha_other_count, 0) AS osha_other_count,
+        COALESCE(oa.osha_total_penalties, 0) AS osha_total_penalties,
         oa.osha_last_inspection_date,
         oa.osha_avg_gravity,
         -- WHD fields (0 if no WHD data)
-        COALESCE(wa.whd_cases_5yr, 0) AS whd_cases_5yr,
+        COALESCE(wa.whd_cases, 0) AS whd_cases,
         COALESCE(wa.whd_backwages_total, 0) AS whd_backwages_total,
         COALESCE(wa.whd_ee_violated_total, 0) AS whd_ee_violated_total,
         -- MSHA fields (0 if no MSHA data)
-        COALESCE(msha.msha_violations_5yr, 0) AS msha_violations_5yr,
+        COALESCE(msha.msha_violations, 0) AS msha_violations,
         COALESCE(msha.msha_assessed_penalties, 0) AS msha_assessed_penalties,
         -- Trend
         COALESCE(t1.violations_1yr, 0) AS violations_1yr,
@@ -224,23 +224,23 @@ SELECT
     e.naics_4digit,
 
     -- OSHA
-    e.osha_inspections_5yr,
-    e.osha_violations_5yr,
-    e.osha_willful_count_5yr,
-    e.osha_repeat_count_5yr,
-    e.osha_serious_count_5yr,
-    e.osha_other_count_5yr,
-    e.osha_penalty_total_5yr,
+    e.osha_inspections,
+    e.osha_violations,
+    e.osha_willful_count,
+    e.osha_repeat_count,
+    e.osha_serious_count,
+    e.osha_other_count,
+    e.osha_total_penalties,
     e.osha_last_inspection_date,
     e.osha_avg_gravity,
 
     -- WHD
-    e.whd_cases_5yr,
+    e.whd_cases,
     e.whd_backwages_total,
     e.whd_ee_violated_total,
 
     -- MSHA
-    e.msha_violations_5yr,
+    e.msha_violations,
     e.msha_assessed_penalties,
 
     -- Parent + location count
@@ -249,31 +249,31 @@ SELECT
 
     -- Risk tier (combines all sources)
     CASE
-        WHEN e.osha_willful_count_5yr >= 1                             THEN 'HIGH'
-        WHEN e.osha_repeat_count_5yr >= 3                              THEN 'HIGH'
-        WHEN e.osha_penalty_total_5yr > 100000                         THEN 'HIGH'
+        WHEN e.osha_willful_count >= 1                             THEN 'HIGH'
+        WHEN e.osha_repeat_count >= 3                              THEN 'HIGH'
+        WHEN e.osha_total_penalties > 100000                         THEN 'HIGH'
         WHEN e.whd_backwages_total > 100000                            THEN 'HIGH'
         WHEN e.whd_ee_violated_total > 100                             THEN 'HIGH'
-        WHEN e.osha_inspections_5yr >= 5
-             AND e.osha_violations_5yr >= 10                           THEN 'ELEVATED'
-        WHEN e.whd_cases_5yr >= 3
+        WHEN e.osha_inspections >= 5
+             AND e.osha_violations >= 10                           THEN 'ELEVATED'
+        WHEN e.whd_cases >= 3
              AND e.whd_backwages_total > 10000                         THEN 'ELEVATED'
-        WHEN e.osha_violations_5yr >= 10                               THEN 'MEDIUM'
-        WHEN e.osha_inspections_5yr BETWEEN 2 AND 4                    THEN 'MEDIUM'
-        WHEN e.osha_violations_5yr BETWEEN 3 AND 9                     THEN 'MEDIUM'
-        WHEN e.whd_cases_5yr >= 2                                      THEN 'MEDIUM'
+        WHEN e.osha_violations >= 10                               THEN 'MEDIUM'
+        WHEN e.osha_inspections BETWEEN 2 AND 4                    THEN 'MEDIUM'
+        WHEN e.osha_violations BETWEEN 3 AND 9                     THEN 'MEDIUM'
+        WHEN e.whd_cases >= 2                                      THEN 'MEDIUM'
         ELSE 'LOW'
     END AS risk_tier,
 
     -- Risk score (0-100)
     LEAST(100, GREATEST(0,
-        LEAST(50, e.osha_willful_count_5yr * 30)
-      + LEAST(30, e.osha_repeat_count_5yr * 15)
-      + LEAST(20, e.osha_serious_count_5yr * 3)
-      + LEAST(5, e.osha_other_count_5yr * 0.5)
-      + LEAST(15, e.osha_penalty_total_5yr / 10000.0)
+        LEAST(50, e.osha_willful_count * 30)
+      + LEAST(30, e.osha_repeat_count * 15)
+      + LEAST(20, e.osha_serious_count * 3)
+      + LEAST(5, e.osha_other_count * 0.5)
+      + LEAST(15, e.osha_total_penalties / 10000.0)
       + LEAST(8, e.whd_backwages_total / 10000.0)
-      + LEAST(4, e.whd_cases_5yr * 1.5)
+      + LEAST(4, e.whd_cases * 1.5)
       + LEAST(3, e.whd_ee_violated_total / 25.0)
     )) AS risk_score,
 
@@ -288,17 +288,17 @@ SELECT
 
     -- Confidence tier
     CASE
-        WHEN e.osha_inspections_5yr >= 3 THEN 'HIGH'
-        WHEN e.osha_inspections_5yr >= 1 OR e.whd_cases_5yr >= 1 THEN 'MEDIUM'
+        WHEN e.osha_inspections >= 3 THEN 'HIGH'
+        WHEN e.osha_inspections >= 1 OR e.whd_cases >= 1 THEN 'MEDIUM'
         ELSE 'LOW'
     END AS confidence_tier,
 
     -- SVEP flag
     CASE
-        WHEN e.osha_willful_count_5yr >= 1 THEN true
-        WHEN e.osha_repeat_count_5yr >= 1 THEN true
-        WHEN e.osha_serious_count_5yr >= 3
-             AND e.osha_penalty_total_5yr > 50000 THEN true
+        WHEN e.osha_willful_count >= 1 THEN true
+        WHEN e.osha_repeat_count >= 1 THEN true
+        WHEN e.osha_serious_count >= 3
+             AND e.osha_total_penalties > 50000 THEN true
         ELSE false
     END AS svep_flag,
 

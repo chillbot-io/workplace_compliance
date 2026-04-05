@@ -140,7 +140,7 @@ async def search_employers(
                     WHERE similarity(employer_name, $1) > {sim_threshold}{extra_where}
                     ORDER BY employer_id, snapshot_date DESC
                 ) sub
-                ORDER BY sim_score DESC, risk_score DESC NULLS LAST, osha_inspections_5yr DESC NULLS LAST
+                ORDER BY sim_score DESC, risk_score DESC NULLS LAST, osha_inspections DESC NULLS LAST
                 LIMIT ${param_idx} OFFSET ${param_idx + 1}
             """, *params, limit, offset)
 
@@ -235,9 +235,9 @@ async def get_parent_company(
         agg = await con.fetchrow(f"""
             SELECT
                 COUNT(DISTINCT employer_id) AS total_locations,
-                SUM(osha_inspections_5yr) AS total_inspections_5yr,
-                SUM(osha_violations_5yr) AS total_violations_5yr,
-                SUM(osha_total_penalties) AS total_penalties_5yr,
+                SUM(osha_inspections) AS total_inspections,
+                SUM(osha_violations) AS total_violations,
+                SUM(osha_total_penalties) AS total_penalties,
                 AVG(risk_score) AS avg_risk_score,
                 MAX(risk_score) AS max_risk_score,
                 MIN(risk_score) AS min_risk_score,
@@ -291,9 +291,9 @@ async def get_parent_company(
             "parent_name": parent_name,
             "total_locations": agg_dict.get("total_locations", 0),
             "aggregate": {
-                "total_inspections_5yr": agg_dict.get("total_inspections_5yr", 0),
-                "total_violations_5yr": agg_dict.get("total_violations_5yr", 0),
-                "total_penalties_5yr": agg_dict.get("total_penalties_5yr", 0),
+                "total_inspections": agg_dict.get("total_inspections", 0),
+                "total_violations": agg_dict.get("total_violations", 0),
+                "total_penalties": agg_dict.get("total_penalties", 0),
                 "avg_risk_score": round(agg_dict.get("avg_risk_score") or 0, 1),
                 "max_risk_score": agg_dict.get("max_risk_score", 0),
                 "min_risk_score": agg_dict.get("min_risk_score", 0),
@@ -460,10 +460,10 @@ def _format_employer(row) -> dict:
     result = json.loads(json.dumps(r, cls=CustomEncoder))
 
     # Add context for risk scores
-    inspections = result.get("osha_inspections_5yr", 0) or 0
+    inspections = result.get("osha_inspections", 0) or 0
     risk_score = result.get("risk_score", 0) or 0
     if inspections == 0 and risk_score == 0:
-        result["risk_note"] = "No OSHA inspections in the last 5 years. This does not mean the employer is violation-free — OSHA inspects a small fraction of workplaces annually."
+        result["risk_note"] = "No OSHA inspections on record. This does not mean the employer is violation-free — OSHA inspects a small fraction of workplaces annually."
 
     return result
 
@@ -756,10 +756,10 @@ async def get_industry(
             SELECT
                 LEFT(naics_code, 4) AS naics_4digit,
                 COUNT(DISTINCT employer_id) AS employer_count,
-                AVG(osha_inspections_5yr) AS avg_inspections_5yr,
-                AVG(osha_violations_5yr) AS avg_violations_5yr,
-                AVG(osha_total_penalties) AS avg_penalties_5yr,
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY osha_total_penalties) AS median_penalties_5yr,
+                AVG(osha_inspections) AS avg_inspections,
+                AVG(osha_violations) AS avg_violations,
+                AVG(osha_total_penalties) AS avg_penalties,
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY osha_total_penalties) AS median_penalties,
                 SUM(CASE WHEN risk_tier = 'HIGH' THEN 1 ELSE 0 END) AS high_count,
                 SUM(CASE WHEN risk_tier = 'ELEVATED' THEN 1 ELSE 0 END) AS elevated_count,
                 SUM(CASE WHEN risk_tier = 'MEDIUM' THEN 1 ELSE 0 END) AS medium_count,

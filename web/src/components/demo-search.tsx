@@ -11,8 +11,8 @@ interface DemoResult {
   zip: string;
   risk_tier: string;
   risk_score: number;
-  osha_inspections_5yr: number;
-  osha_violations_5yr: number;
+  osha_inspections: number;
+  osha_violations: number;
   osha_total_penalties: number;
   location_count: number;
   parent_name: string | null;
@@ -123,8 +123,8 @@ export function DemoSearch() {
                     )}
                   </div>
                   <div className="flex gap-4 mt-2 text-xs text-slate-500">
-                    <span>{r.osha_inspections_5yr} inspections (5yr)</span>
-                    <span>{r.osha_violations_5yr} violations</span>
+                    <span>{r.osha_inspections} inspections</span>
+                    <span>{r.osha_violations} violations</span>
                     <span>${(r.osha_total_penalties || 0).toLocaleString()} penalties</span>
                     {r.location_count > 1 && (
                       <span>{r.location_count} locations</span>

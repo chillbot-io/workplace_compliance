@@ -37,7 +37,7 @@ async def upload_csv(
 
     Extra columns in the input are preserved in the output.
     Output adds: employer_id, match_confidence, risk_tier, risk_score,
-    osha_inspections_5yr, osha_violations_5yr, osha_total_penalties,
+    osha_inspections, osha_violations, osha_total_penalties,
     location_count, trend_signal
     """
     # Validate file type
@@ -150,8 +150,8 @@ async def upload_csv(
                 out["fastdol_match_confidence"] = _match_confidence(match)
                 out["fastdol_risk_tier"] = emp.get("risk_tier", "")
                 out["fastdol_risk_score"] = emp.get("risk_score", "")
-                out["fastdol_osha_inspections_5yr"] = emp.get("osha_inspections_5yr", "")
-                out["fastdol_osha_violations_5yr"] = emp.get("osha_violations_5yr", "")
+                out["fastdol_osha_inspections"] = emp.get("osha_inspections", "")
+                out["fastdol_osha_violations"] = emp.get("osha_violations", "")
                 out["fastdol_osha_total_penalties"] = emp.get("osha_total_penalties", "")
                 out["fastdol_location_count"] = emp.get("location_count", "")
                 out["fastdol_trend_signal"] = emp.get("trend_signal", "")
@@ -200,8 +200,8 @@ def _empty_result_columns() -> dict:
         "fastdol_match_confidence": "",
         "fastdol_risk_tier": "",
         "fastdol_risk_score": "",
-        "fastdol_osha_inspections_5yr": "",
-        "fastdol_osha_violations_5yr": "",
+        "fastdol_osha_inspections": "",
+        "fastdol_osha_violations": "",
         "fastdol_osha_total_penalties": "",
         "fastdol_location_count": "",
         "fastdol_trend_signal": "",

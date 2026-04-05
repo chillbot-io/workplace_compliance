@@ -11,10 +11,10 @@ interface Employer {
   zip: string;
   risk_tier: string;
   risk_score: number;
-  osha_inspections_5yr: number;
-  osha_violations_5yr: number;
+  osha_inspections: number;
+  osha_violations: number;
   osha_total_penalties: number;
-  whd_cases_5yr: number;
+  whd_cases: number;
   whd_backwages_total: number;
   location_count: number;
   parent_name: string | null;
@@ -158,10 +158,10 @@ export default function SearchPage() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
-                      <span>{r.osha_inspections_5yr} inspections</span>
-                      <span>{r.osha_violations_5yr} violations</span>
+                      <span>{r.osha_inspections} inspections</span>
+                      <span>{r.osha_violations} violations</span>
                       <span>${(r.osha_total_penalties || 0).toLocaleString()} penalties</span>
-                      {r.whd_cases_5yr > 0 && <span>{r.whd_cases_5yr} WHD cases</span>}
+                      {r.whd_cases > 0 && <span>{r.whd_cases} WHD cases</span>}
                       {r.whd_backwages_total > 0 && <span>${r.whd_backwages_total.toLocaleString()} back wages</span>}
                       {r.location_count > 1 && <span>{r.location_count} locations</span>}
                     </div>
