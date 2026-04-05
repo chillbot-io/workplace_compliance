@@ -50,6 +50,7 @@ def sync():
         "osha_serious_willful", "osha_total_penalties",
         "osha_open_date_latest", "osha_avg_gravity",
         "whd_cases", "whd_backwages_total", "whd_ee_violated_total",
+        "msha_violations", "msha_assessed_penalties",
         "risk_tier", "risk_score", "confidence_tier", "trend_signal",
         "location_count", "parent_name",
     ]
@@ -171,11 +172,11 @@ def sync_inspection_detail(duck, conn, pipeline_run_id):
             SELECT
                 o.activity_nr,
                 CAST(
-                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 1, 8) || '-' ||
-                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 9, 4) || '-' ||
-                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 13, 4) || '-' ||
-                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 17, 4) || '-' ||
-                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '') || '|' || COALESCE(o.zip5, '')), 21, 12)
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '')), 1, 8) || '-' ||
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '')), 9, 4) || '-' ||
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '')), 13, 4) || '-' ||
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '')), 17, 4) || '-' ||
+                    SUBSTR(MD5(o.name_normalized || '|' || COALESCE(o.site_state, '')), 21, 12)
                 AS VARCHAR) AS employer_id,
                 o.estab_name AS employer_name,
                 o.site_address,
