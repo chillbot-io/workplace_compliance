@@ -5,10 +5,9 @@
 
 -- Gold: employer-level risk profile using deterministic entity resolution.
 --
--- Each profile = one employer name + state combination.
--- All inspections/violations at all locations within a state are aggregated.
--- Individual location data is available via the inspection detail endpoint.
--- Parent company rollup groups profiles across states.
+-- Each profile = one employer name + state + zip combination.
+-- Developer searches by name, gets back all matching profiles.
+-- Parent company rollup aggregates across locations/states.
 
 WITH osha AS (
     SELECT * FROM {{ ref('osha_inspection_norm') }}
@@ -24,20 +23,22 @@ whd AS (
       AND LENGTH(name_normalized) > 2
 ),
 
--- All unique employer keys: name + state
+-- All unique employer keys: name + state + zip
 all_employer_keys AS (
     SELECT DISTINCT
-        name_normalized || '|' || COALESCE(site_state, '') AS employer_key,
+        name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS employer_key,
         name_normalized,
-        site_state AS state
+        site_state AS state,
+        zip5
     FROM osha
 
     UNION
 
     SELECT DISTINCT
-        name_normalized || '|' || COALESCE(state, '') AS employer_key,
+        name_normalized || '|' || COALESCE(state, '') || '|' || COALESCE(zip5, '') AS employer_key,
         name_normalized,
-        state
+        state,
+        zip5
     FROM whd
 ),
 
@@ -47,6 +48,7 @@ employer_ids AS (
         employer_key,
         name_normalized,
         state,
+        zip5,
         CAST(
             SUBSTR(MD5(employer_key), 1, 8) || '-' ||
             SUBSTR(MD5(employer_key), 9, 4) || '-' ||
@@ -64,7 +66,7 @@ employer_ids AS (
 -- OSHA all-time aggregation
 osha_with_key AS (
     SELECT o.*,
-        name_normalized || '|' || COALESCE(site_state, '') AS employer_key
+        name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS employer_key
     FROM osha o
 ),
 osha_agg AS (
@@ -104,7 +106,7 @@ osha_3yr AS (
 -- WHD all-time aggregation
 whd_with_key AS (
     SELECT w.*,
-        w.name_normalized || '|' || COALESCE(w.state, '') AS employer_key
+        w.name_normalized || '|' || COALESCE(w.state, '') || '|' || COALESCE(w.zip5, '') AS employer_key
     FROM whd w
 ),
 whd_agg AS (
@@ -113,7 +115,6 @@ whd_agg AS (
         ARG_MIN(employer_name, -EXTRACT(EPOCH FROM findings_end_date)) AS whd_employer_name,
         ARG_MIN(address, -EXTRACT(EPOCH FROM findings_end_date)) AS whd_address,
         ARG_MIN(city, -EXTRACT(EPOCH FROM findings_end_date)) AS whd_city,
-        ARG_MIN(zip5, -EXTRACT(EPOCH FROM findings_end_date)) AS whd_zip5,
         COUNT(DISTINCT case_id) AS whd_cases,
         SUM(backwages) AS whd_backwages_total,
         SUM(employees_violated) AS whd_ee_violated_total
@@ -148,7 +149,7 @@ employer_base AS (
         COALESCE(oa.address, wa.whd_address) AS address,
         COALESCE(oa.city, wa.whd_city) AS city,
         ei.state,
-        COALESCE(oa.zip5, wa.whd_zip5) AS zip5,
+        ei.zip5,
         oa.naics_code,
         oa.naics_4digit,
         -- OSHA fields (0 if no OSHA data)
