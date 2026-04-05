@@ -29,7 +29,7 @@ whd AS (
       AND LENGTH(name_normalized) > 2
 ),
 
--- All unique employer keys from every source
+-- All unique employer keys from sources with 5-year activity
 all_employer_keys AS (
     SELECT DISTINCT
         name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS employer_key,
@@ -37,6 +37,7 @@ all_employer_keys AS (
         site_state AS state,
         zip5
     FROM osha
+    WHERE open_date >= CURRENT_DATE - INTERVAL '5 years'
 
     UNION
 
@@ -46,6 +47,7 @@ all_employer_keys AS (
         state,
         zip5
     FROM whd
+    WHERE findings_end_date >= CURRENT_DATE - INTERVAL '5 years'
 ),
 
 -- Generate stable employer_id UUIDs from employer_key
