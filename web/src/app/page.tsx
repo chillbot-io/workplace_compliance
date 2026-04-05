@@ -103,9 +103,9 @@ export default function HomePage() {
               { name: "OSHA Inspections", count: "2.5M+", desc: "Workplace safety inspections since 1972" },
               { name: "OSHA Violations", count: "1.8M+", desc: "Citations with severity, penalties, and abatement" },
               { name: "WHD Enforcement", count: "355K+", desc: "Wage & Hour Division compliance actions" },
-              { name: "Risk Scoring", count: "190K+", desc: "Employer profiles with risk tier and score" },
-              { name: "Entity Resolution", count: "1.1M", desc: "Clusters linking records to canonical employers" },
-              { name: "Updated Nightly", count: "24h", desc: "OSHA data refreshed daily, WHD weekly" },
+              { name: "MSHA Violations", count: "3M+", desc: "Mine safety violations and assessed penalties" },
+              { name: "Employer Profiles", count: "228K+", desc: "Risk-scored profiles with parent company matching" },
+              { name: "Updated Nightly", count: "24h", desc: "OSHA data refreshed daily, WHD weekly, MSHA weekly" },
             ].map((source) => (
               <div key={source.name} className="flex items-start gap-4 rounded-lg bg-slate-800/50 border border-slate-700 p-5">
                 <div>

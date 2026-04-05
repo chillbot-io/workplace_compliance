@@ -46,10 +46,10 @@ def sync():
     pg_columns = [
         "employer_id", "snapshot_date", "pipeline_run_id",
         "employer_name", "address", "city", "state", "zip", "naics_code", "naics_description",
-        "osha_inspections_5yr", "osha_violations_5yr",
+        "osha_inspections", "osha_violations",
         "osha_serious_willful", "osha_total_penalties",
         "osha_open_date_latest", "osha_avg_gravity",
-        "whd_cases_5yr", "whd_backwages_total", "whd_ee_violated_total",
+        "whd_cases", "whd_backwages_total", "whd_ee_violated_total",
         "risk_tier", "risk_score", "confidence_tier", "trend_signal",
         "location_count", "parent_name",
     ]
@@ -62,10 +62,10 @@ def sync():
         "state": "state",
         "zip5": "zip",
         "naics_code": "naics_code",
-        "osha_inspections_5yr": "osha_inspections_5yr",
-        "osha_violations_5yr": "osha_violations_5yr",
-        "osha_willful_count_5yr": "osha_serious_willful",
-        "osha_penalty_total_5yr": "osha_total_penalties",
+        "osha_inspections": "osha_inspections",
+        "osha_violations": "osha_violations",
+        "osha_willful_count": "osha_serious_willful",
+        "osha_total_penalties": "osha_total_penalties",
         "osha_last_inspection_date": "osha_open_date_latest",
         "osha_avg_gravity": "osha_avg_gravity",
         "risk_tier": "risk_tier",
@@ -88,9 +88,9 @@ def sync():
 
     # Cast integer columns — DuckDB SUM() produces floats
     int_cols = [
-        "osha_inspections_5yr", "osha_violations_5yr", "osha_serious_willful",
+        "osha_inspections", "osha_violations", "osha_serious_willful",
         "location_count",
-        "whd_cases_5yr", "whd_ee_violated_total",
+        "whd_cases", "whd_ee_violated_total",
     ]
     for col in int_cols:
         if col in pg_df.columns:

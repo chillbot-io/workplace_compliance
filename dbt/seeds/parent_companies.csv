@@ -56,9 +56,11 @@ SMITHFIELD,Smithfield Foods,prefix
 CARGILL,Cargill Inc,prefix
 SYSCO,Sysco Corporation,prefix
 US FOODS,US Foods Inc,prefix
-CVS,CVS Health,prefix
 CVS PHARMACY,CVS Health,prefix
 CVS HEALTH,CVS Health,prefix
+CVS RX,CVS Health,prefix
+CVS STORES,CVS Health,prefix
+CVS DISTRIBUTION,CVS Health,prefix
 WALGREENS,Walgreens Boots Alliance,prefix
 RITE AID,Rite Aid,prefix
 TESLA,Tesla Inc,prefix

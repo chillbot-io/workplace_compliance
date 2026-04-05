@@ -18,10 +18,10 @@ interface Employer {
   risk_tier: string;
   risk_score: number;
   risk_note: string | null;
-  osha_inspections_5yr: number;
-  osha_violations_5yr: number;
+  osha_inspections: number;
+  osha_violations: number;
   osha_total_penalties: number;
-  whd_cases_5yr: number;
+  whd_cases: number;
   whd_backwages_total: number;
   whd_ee_violated_total: number;
   trend_signal: string | null;
@@ -189,11 +189,11 @@ export default function EmployerDetailPage({ params }: { params: Promise<{ id: s
       {/* Stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         {[
-          { label: "OSHA Inspections (5yr)", value: employer.osha_inspections_5yr },
-          { label: "OSHA Violations (5yr)", value: employer.osha_violations_5yr },
+          { label: "OSHA Inspections", value: employer.osha_inspections },
+          { label: "OSHA Violations", value: employer.osha_violations },
           { label: "Total Penalties", value: `$${(employer.osha_total_penalties || 0).toLocaleString()}` },
           { label: "Trend", value: employer.trend_signal || "STABLE" },
-          { label: "WHD Cases (5yr)", value: employer.whd_cases_5yr || 0 },
+          { label: "WHD Cases", value: employer.whd_cases || 0 },
           { label: "Back Wages Owed", value: `$${(employer.whd_backwages_total || 0).toLocaleString()}` },
           { label: "Confidence", value: employer.confidence_tier || "—" },
           { label: "SVEP Flag", value: employer.svep_flag ? "Yes" : "No" },

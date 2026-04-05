@@ -126,10 +126,10 @@ GET /v1/industries/naics-codes`}
       "naics_description": "Discount Department Stores",
       "risk_tier": "MEDIUM",
       "risk_score": 12.5,
-      "osha_inspections_5yr": 3,
-      "osha_violations_5yr": 7,
+      "osha_inspections": 3,
+      "osha_violations": 7,
       "osha_total_penalties": 15000.00,
-      "whd_cases_5yr": 1,
+      "whd_cases": 1,
       "whd_backwages_total": 5000.00,
       "trend_signal": "STABLE",
       "confidence_tier": "HIGH",
@@ -155,6 +155,7 @@ GET /v1/industries/naics-codes`}
           <li><strong>OSHA violations</strong> — willful (30 pts), repeat (15 pts), serious (3 pts)</li>
           <li><strong>OSHA penalties</strong> — up to 15 pts based on dollar amount</li>
           <li><strong>WHD enforcement</strong> — back wages (up to 8 pts), cases (up to 4 pts), employees violated (up to 3 pts)</li>
+          <li><strong>MSHA mine safety</strong> — violations and assessed penalties contribute to risk score for mining employers</li>
         </ul>
         <p>Risk tiers: <strong>HIGH</strong> (willful violations, &gt;$100k penalties), <strong>ELEVATED</strong>, <strong>MEDIUM</strong>, <strong>LOW</strong>.</p>
 

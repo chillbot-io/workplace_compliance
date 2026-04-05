@@ -41,12 +41,12 @@ def main():
         row = con.execute(f"""
             SELECT
                 employer_name, name_normalized, state, zip5, naics_code,
-                osha_inspections_5yr, osha_violations_5yr,
-                osha_penalty_total_5yr, risk_tier, risk_score,
+                osha_inspections, osha_violations,
+                osha_total_penalties, risk_tier, risk_score,
                 osha_last_inspection_date
             FROM employer_profile
             WHERE name_normalized LIKE '{name}%'
-            ORDER BY osha_inspections_5yr DESC
+            ORDER BY osha_inspections DESC
             LIMIT 1
         """).fetchone()
 
@@ -60,8 +60,8 @@ def main():
     high_risk = con.execute("""
         SELECT
             employer_name, name_normalized, state, zip5, naics_code,
-            osha_inspections_5yr, osha_violations_5yr,
-            osha_penalty_total_5yr, risk_tier, risk_score,
+            osha_inspections, osha_violations,
+            osha_total_penalties, risk_tier, risk_score,
             osha_last_inspection_date
         FROM employer_profile
         WHERE risk_tier = 'HIGH'
@@ -79,8 +79,8 @@ def main():
     medium = con.execute("""
         SELECT
             employer_name, name_normalized, state, zip5, naics_code,
-            osha_inspections_5yr, osha_violations_5yr,
-            osha_penalty_total_5yr, risk_tier, risk_score,
+            osha_inspections, osha_violations,
+            osha_total_penalties, risk_tier, risk_score,
             osha_last_inspection_date
         FROM employer_profile
         WHERE risk_tier = 'MEDIUM'
@@ -98,11 +98,11 @@ def main():
     low = con.execute("""
         SELECT
             employer_name, name_normalized, state, zip5, naics_code,
-            osha_inspections_5yr, osha_violations_5yr,
-            osha_penalty_total_5yr, risk_tier, risk_score,
+            osha_inspections, osha_violations,
+            osha_total_penalties, risk_tier, risk_score,
             osha_last_inspection_date
         FROM employer_profile
-        WHERE risk_tier = 'LOW' AND osha_inspections_5yr >= 1
+        WHERE risk_tier = 'LOW' AND osha_inspections >= 1
         ORDER BY RANDOM()
         LIMIT 5
     """).fetchall()
@@ -130,9 +130,9 @@ def format_entry(row):
         "state": row[2],
         "zip": row[3],
         "naics": row[4],
-        "osha_inspections_5yr": row[5],
-        "osha_violations_5yr": row[6],
-        "osha_penalties_5yr": float(row[7]) if row[7] else 0,
+        "osha_inspections": row[5],
+        "osha_violations": row[6],
+        "osha_penalties": float(row[7]) if row[7] else 0,
         "risk_tier": row[8],
         "risk_score": float(row[9]) if row[9] else 0,
         "last_inspection": str(row[10]) if row[10] else None,
@@ -142,7 +142,7 @@ def format_entry(row):
 def print_entry(e):
     print(f"  {e['employer_name']}")
     print(f"    State: {e['state']}  ZIP: {e['zip']}  NAICS: {e['naics']}")
-    print(f"    Inspections (5yr): {e['osha_inspections_5yr']}  Violations: {e['osha_violations_5yr']}  Penalties: ${e['osha_penalties_5yr']:,.0f}")
+    print(f"    Inspections: {e['osha_inspections']}  Violations: {e['osha_violations']}  Penalties: ${e['osha_penalties']:,.0f}")
     print(f"    Risk: {e['risk_tier']} ({e['risk_score']})  Last inspection: {e['last_inspection']}")
     print()
 

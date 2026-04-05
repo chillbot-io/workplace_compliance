@@ -33,6 +33,7 @@ export function Footer() {
               <li className="text-sm text-slate-500">OSHA Inspections</li>
               <li className="text-sm text-slate-500">OSHA Violations</li>
               <li className="text-sm text-slate-500">WHD Enforcement</li>
+              <li className="text-sm text-slate-500">MSHA Mine Safety</li>
             </ul>
           </div>
         </div>
