@@ -32,8 +32,8 @@ const plans = [
 const faqs = [
   { q: "What counts as a lookup?", a: "Each employer search, batch item, or CSV row that returns a result counts as one lookup. Searches that return no results are free." },
   { q: "Can I try before I buy?", a: "Yes. The free tier gives you 50 lookups/month with no credit card required. You can also try the demo search on our homepage without signing up." },
-  { q: "What data sources are included?", a: "All plans include OSHA inspections, OSHA violations, and WHD wage enforcement data. We aggregate federal enforcement records from the Department of Labor." },
-  { q: "How fresh is the data?", a: "OSHA data is refreshed nightly. WHD data is refreshed weekly. Note that OSHA citations typically appear 3-8 months after the actual inspection date." },
+  { q: "What data sources are included?", a: "All plans include OSHA inspections, OSHA violations, WHD wage enforcement, and MSHA mine safety data. We aggregate federal enforcement records from the Department of Labor." },
+  { q: "How fresh is the data?", a: "OSHA data is refreshed nightly. WHD and MSHA data are refreshed weekly. Note that OSHA citations typically appear 3-8 months after the actual inspection date." },
   { q: "Do you offer annual billing?", a: "Yes. Annual plans save 20% (2 months free). Contact us at support@fastdol.com for annual pricing." },
   { q: "What about enterprise needs?", a: "For unlimited lookups, custom SLAs, or data licensing, contact us at enterprise@fastdol.com." },
 ];

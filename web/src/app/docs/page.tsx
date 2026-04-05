@@ -155,6 +155,7 @@ GET /v1/industries/naics-codes`}
           <li><strong>OSHA violations</strong> — willful (30 pts), repeat (15 pts), serious (3 pts)</li>
           <li><strong>OSHA penalties</strong> — up to 15 pts based on dollar amount</li>
           <li><strong>WHD enforcement</strong> — back wages (up to 8 pts), cases (up to 4 pts), employees violated (up to 3 pts)</li>
+          <li><strong>MSHA mine safety</strong> — violations and assessed penalties contribute to risk score for mining employers</li>
         </ul>
         <p>Risk tiers: <strong>HIGH</strong> (willful violations, &gt;$100k penalties), <strong>ELEVATED</strong>, <strong>MEDIUM</strong>, <strong>LOW</strong>.</p>
 
