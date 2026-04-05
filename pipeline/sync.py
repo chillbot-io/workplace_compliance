@@ -50,6 +50,7 @@ def sync():
         "osha_serious_willful", "osha_total_penalties",
         "osha_open_date_latest", "osha_avg_gravity",
         "whd_cases", "whd_backwages_total", "whd_ee_violated_total",
+        "msha_violations", "msha_assessed_penalties",
         "risk_tier", "risk_score", "confidence_tier", "trend_signal",
         "location_count", "parent_name",
     ]

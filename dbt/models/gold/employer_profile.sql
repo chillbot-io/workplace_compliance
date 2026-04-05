@@ -5,15 +5,9 @@
 
 -- Gold: employer-level risk profile using deterministic entity resolution.
 --
--- Profiles are created from ALL data sources (OSHA, WHD, MSHA), not just OSHA.
--- An employer with WHD wage violations but no OSHA inspections gets its own profile.
---
--- Matching: name_normalized + state + zip5 = one employer profile.
--- Parent company rollup is display-only (never merges profiles).
-
--- ══════════════════════════════════════════════════════════
--- STEP 1: Build the universe of all employer keys from all sources
--- ══════════════════════════════════════════════════════════
+-- Each profile = one employer name + state + zip combination.
+-- Developer searches by name, gets back all matching profiles.
+-- Parent company rollup aggregates across locations/states.
 
 WITH osha AS (
     SELECT * FROM {{ ref('osha_inspection_norm') }}
@@ -29,7 +23,7 @@ whd AS (
       AND LENGTH(name_normalized) > 2
 ),
 
--- All unique employer keys from all sources, all time
+-- All unique employer keys: name + state + zip
 all_employer_keys AS (
     SELECT DISTINCT
         name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS employer_key,
@@ -81,6 +75,7 @@ osha_agg AS (
         ARG_MIN(ok.estab_name, -EXTRACT(EPOCH FROM ok.open_date)) AS employer_name,
         ARG_MIN(ok.site_address, -EXTRACT(EPOCH FROM ok.open_date)) AS address,
         ARG_MIN(ok.site_city, -EXTRACT(EPOCH FROM ok.open_date)) AS city,
+        ARG_MIN(ok.zip5, -EXTRACT(EPOCH FROM ok.open_date)) AS zip5,
         ARG_MIN(ok.naics_code, -EXTRACT(EPOCH FROM ok.open_date)) AS naics_code,
         ARG_MIN(LEFT(ok.naics_code, 4), -EXTRACT(EPOCH FROM ok.open_date)) AS naics_4digit,
         COUNT(DISTINCT ok.activity_nr) AS osha_inspections,
