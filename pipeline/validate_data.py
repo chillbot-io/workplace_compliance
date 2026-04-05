@@ -83,8 +83,8 @@ def main():
 
     # Employer profiles — should be >200k after entity resolution
     profile_count = safe_count(con, "employer_profile")
-    critical("employer_profile > 150k", profile_count > 150_000,
-             f"got {profile_count:,} (expected >150k)")
+    critical("employer_profile > 500k", profile_count > 500_000,
+             f"got {profile_count:,} (expected >500k)")
     info("employer_profile_count", profile_count)
 
     # Entity resolution — deterministic matching produces profiles directly

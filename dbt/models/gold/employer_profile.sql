@@ -265,16 +265,26 @@ SELECT
         ELSE 'LOW'
     END AS risk_tier,
 
-    -- Risk score (0-100)
+    -- Risk score (0-100) with time decay
+    -- Full score for activity in last 3 years, decays 20% per year after that
+    -- 5+ years old = 40% of raw score (never fully zero — history matters)
     LEAST(100, GREATEST(0,
-        LEAST(50, e.osha_willful_count * 30)
-      + LEAST(30, e.osha_repeat_count * 15)
-      + LEAST(20, e.osha_serious_count * 3)
-      + LEAST(5, e.osha_other_count * 0.5)
-      + LEAST(15, e.osha_total_penalties / 10000.0)
-      + LEAST(8, e.whd_backwages_total / 10000.0)
-      + LEAST(4, e.whd_cases * 1.5)
-      + LEAST(3, e.whd_ee_violated_total / 25.0)
+        (
+            LEAST(50, e.osha_willful_count * 30)
+          + LEAST(30, e.osha_repeat_count * 15)
+          + LEAST(20, e.osha_serious_count * 3)
+          + LEAST(5, e.osha_other_count * 0.5)
+          + LEAST(15, e.osha_total_penalties / 10000.0)
+          + LEAST(8, e.whd_backwages_total / 10000.0)
+          + LEAST(4, e.whd_cases * 1.5)
+          + LEAST(3, e.whd_ee_violated_total / 25.0)
+        ) * CASE
+            WHEN e.osha_last_inspection_date >= CURRENT_DATE - INTERVAL '3 years' THEN 1.0
+            WHEN e.osha_last_inspection_date >= CURRENT_DATE - INTERVAL '4 years' THEN 0.8
+            WHEN e.osha_last_inspection_date >= CURRENT_DATE - INTERVAL '5 years' THEN 0.6
+            WHEN e.osha_last_inspection_date IS NOT NULL THEN 0.4
+            ELSE 1.0  -- WHD-only employers with no OSHA date get full score
+          END
     )) AS risk_score,
 
     -- Trend signal
@@ -309,3 +319,4 @@ FROM employer_base e
 LEFT JOIN {{ ref('naics_2022') }} n ON e.naics_code = n.naics_code
 LEFT JOIN parent_match pm ON e.employer_id = pm.employer_id
 LEFT JOIN location_counts lc ON e.employer_id = lc.employer_id
+WHERE e.employer_name IS NOT NULL
