@@ -40,6 +40,7 @@ def main():
         "osha_inspections", "osha_violations", "whd_actions",
         "msha_mines", "msha_violations", "msha_inspections",
         "ofccp_evaluations", "oflc_disclosure",
+        "ita_summary", "ita_case_detail",
     ]
 
     for source in sources:
