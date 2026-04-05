@@ -23,65 +23,14 @@ WITH osha AS (
       AND LENGTH(name_normalized) > 2
 ),
 
--- Pass 1: Assign each inspection a location_key (name + state + zip)
-osha_with_location AS (
-    SELECT
-        o.*,
-        -- Primary grouping key: normalized name + state + zip
-        name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS location_key,
-        -- Address key for pass 2 merge (may be NULL if address parsing failed)
-        address_key
-    FROM osha o
-),
-
--- Pass 2: Find cases where different location_keys share the same address_key + state + zip
--- These are different name variants at the same physical address
--- Pick the location_key with most inspections as the canonical key for each address group
-address_groups AS (
-    SELECT
-        address_key,
-        site_state,
-        zip5,
-        location_key,
-        COUNT(*) AS inspection_count
-    FROM osha_with_location
-    WHERE address_key IS NOT NULL
-    GROUP BY address_key, site_state, zip5, location_key
-),
-address_ranked AS (
-    SELECT
-        address_key, site_state, zip5, location_key AS canonical_key,
-        ROW_NUMBER() OVER (
-            PARTITION BY address_key, site_state, zip5
-            ORDER BY inspection_count DESC
-        ) AS rn
-    FROM address_groups
-),
-address_canonical AS (
-    SELECT address_key, site_state, zip5, canonical_key
-    FROM address_ranked
-    WHERE rn = 1
-),
--- Map each location_key to its canonical key (if it shares an address with another key)
-address_merge AS (
-    SELECT DISTINCT
-        ag.location_key,
-        ac.canonical_key
-    FROM address_groups ag
-    JOIN address_canonical ac
-        ON ag.address_key = ac.address_key
-        AND ag.site_state = ac.site_state
-        AND ag.zip5 = ac.zip5
-    WHERE ag.location_key != ac.canonical_key
-),
-
--- Build final employer_key: use canonical key from address merge, fall back to location_key
+-- Each inspection gets an employer_key = name_normalized + state + zip5
+-- No address merging — different business names at the same address are different employers
+-- (e.g., multiple contractors at a construction site or hotel)
 osha_with_employer AS (
     SELECT
         o.*,
-        COALESCE(am.canonical_key, o.location_key) AS employer_key
-    FROM osha_with_location o
-    LEFT JOIN address_merge am ON o.location_key = am.location_key
+        name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS employer_key
+    FROM osha o
 ),
 
 -- Generate stable employer_id UUIDs from employer_key
