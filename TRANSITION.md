@@ -148,12 +148,13 @@
 2. **Uvicorn runs on port 8001** (not 8000) — port 8000 used by openlabels
 3. **nginx config uses port 8000** — deployed version sed'd to 8001
 4. **Database is named `stablelabel`** not `employer_compliance` — legacy name, works fine
-5. **parent_companies.csv** can't load via dbt seed (CSV sniffer fails on special chars) — use `load_parent_companies.py` instead
-6. **Splink v4.0.6** — EM training fails, use only `estimate_u_using_random_sampling`
-7. **DOL API key** must be sent as BOTH header AND query param (WHD requires query param)
-8. **WHD offset 130000** returns persistent 502 — bad batch skip logic handles it
-9. **Postgres table ownership** — `employer_profile` owned by `pipeline_user`, migrations need that user
-10. **39 duplicate employer_ids** in gold model from parent match join — deduplicated in sync.py
+5. **DOL API key** must be sent as BOTH header AND query param (WHD requires query param)
+6. **WHD offset 130000** returns persistent 502 — bad batch skip logic handles it
+7. **Postgres table ownership** — `employer_profile` owned by `pipeline_user`, migrations need that user
+8. **MSHA dates are MM/DD/YYYY** — staging model uses STRPTIME to parse
+9. **OFCCP/OFLC datasets NOT on DOL API v4** — need bulk download from data.dol.gov (new portal launched Feb 2026), staging+silver models exist but are commented out in gold model
+10. **Splink is REMOVED** — replaced with deterministic matching (name+state+zip + address merge). entity_resolution.py still exists but is no longer called by the pipeline
+11. **parent_companies.csv** — curated list of 134 national chains, loads via dbt seed (no longer uses SEC Exhibit 21 data)
 
 ---
 
@@ -175,35 +176,37 @@
 ## 6. What's Next
 
 ### Immediate (next session)
-1. **Website** — the only blocker to revenue:
-   - Landing page (hero, value prop, data sources)
-   - Search page (name + zip/state, results with risk profiles)
-   - CSV bulk upload page (drag & drop, get results CSV)
-   - Signup/login pages (calls existing auth API)
-   - Pricing page (tiers, Stripe checkout)
-   - API key display (shown once after verification)
-   - Stack: Next.js + Tailwind + shadcn/ui, deploy to Vercel
-2. **Ground truth validation** — run `validate_ground_truth.py`, spot-check 10+ employers against osha.gov
-3. **Security hardening** — change default passwords, Stripe live mode, Sentry DSN (see PRE_LAUNCH_CHECKLIST.md)
+1. **Ground truth validation** — run `validate_ground_truth.py`, spot-check 10+ employers against osha.gov (was blocked — osha.gov was down)
+2. **Security hardening** — change default passwords, Stripe live mode, Sentry DSN (see PRE_LAUNCH_CHECKLIST.md)
+3. **E&O Insurance** — get errors & omissions insurance before launch (risk scores influence underwriting decisions)
+
+### Completed this session
+- **Website** — built and deployed to Vercel (www.fastdol.com)
+  - Dark navy theme with violet accents
+  - Landing page with demo search, pricing, data sources
+  - Auth flow (signup, login, verify, forgot/reset password)
+  - Employer search with pagination
+  - Employer detail with clickable inspection reports + violation detail
+  - CSV bulk upload page
+  - API docs with Swagger/ReDoc links
+  - 38 security issues fixed from audit
+- **MSHA data source** — 3M mine safety violations integrated
+- **Deterministic entity resolution** — replaced Splink (60-76% precision) with name+state+zip matching + address merge
+- **Parent company matching** — curated 134-entry seed table from actual data
 
 ### After first customers
-4. **Additional data sources** (each ~1 day with existing pipeline framework):
-   - MSHA (mine safety) — bulk download, pipe-delimited flat files
-   - FMCSA (trucking) — REST API, free key via Login.gov
-   - EPA ECHO (environmental) — bulk CSV, 1.5M facilities
-   - OFCCP (federal contractor compliance) — DOL data catalog CSV
-   - NLRB (labor relations) — GitHub scraper or web search tool
-5. **HIL review queue UI** — review borderline Splink pairs (0.80-0.85 match probability)
-6. **API documentation** — endpoint reference, getting started guide, code examples
-7. **Python SDK** — thin wrapper over API (search, batch, upload, parent)
-8. **Grafana monitoring** — pipeline metrics, API response times, DQ trends
+4. **OFCCP + OFLC data** — staging/silver models ready, need bulk download URLs from data.dol.gov
+5. **HIL review queue UI** — review edge case matches via web interface
+6. **Python SDK** — thin wrapper over API
+7. **Grafana monitoring** — pipeline metrics, API response times, DQ trends
+8. **More parent company entries** — auto-detect from data, expand curated list
 
 ### Key files to read first
 1. `PIPELINE_ARCHITECTURE.md` — full pipeline diagram, schedule, risk scoring methodology
 2. `PRE_LAUNCH_CHECKLIST.md` — every step to go live
-3. `LAUNCH_AGENDA.md` — block-by-block launch plan
-4. `api/routes/employers.py` — all employer endpoints
-5. `dbt/models/gold/employer_profile.sql` — risk scoring logic
-6. `pipeline/entity_resolution.py` — Splink + name merge
-7. `pipeline/ingest_dol.py` — DOL API ingestion with rate limiting
-8. `pipeline/validate_data.py` — data quality gate
+3. `api/routes/employers.py` — all employer endpoints + parent rollup
+4. `dbt/models/gold/employer_profile.sql` — deterministic matching + risk scoring
+5. `pipeline/ingest_dol.py` — DOL API ingestion with rate limiting + bad batch skip
+6. `pipeline/ingest_msha.py` — MSHA bulk download
+7. `pipeline/validate_data.py` — data quality gate (blocks sync on critical failures)
+8. `web/` — Next.js website (Vercel deployment)
