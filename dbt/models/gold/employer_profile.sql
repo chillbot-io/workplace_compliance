@@ -18,9 +18,9 @@
 WITH osha AS (
     SELECT * FROM {{ ref('osha_inspection_norm') }}
     WHERE name_normalized IS NOT NULL
-      AND name_normalized NOT IN ('UNKNOWN', 'UNKNOWN CONTRACTOR', 'UNKNOWN EMPLOYER',
+      AND name_normalized NOT IN ('UNKNOWNINVALID ESTABLISHMENT', 'INVALID ESTABLISHMENT',
                                    'NA', 'NONE', 'TEST', 'TBD', 'NO NAME')
-      AND LENGTH(name_normalized) > 1
+      AND LENGTH(name_normalized) > 2
 ),
 
 -- Pass 1: Assign each inspection a location_key (name + state + zip)
@@ -188,29 +188,50 @@ whd_agg AS (
     GROUP BY employer_id
 ),
 
--- Parent company matching (display-only, never merges profiles)
-parent_exact AS (
-    SELECT e.employer_id, pc.parent_name
-    FROM employer_osha e
-    INNER JOIN {{ ref('parent_companies') }} pc
-        ON e.name_normalized = pc.name_pattern
-        AND pc.match_type = 'exact'
+-- MSHA: deterministic matching by name_normalized + state
+-- MSHA doesn't have zip, so match on name + state only
+msha_with_key AS (
+    SELECT
+        m.*,
+        m.name_normalized || '|' || COALESCE(m.state, '') AS msha_key
+    FROM {{ ref('msha_violation_norm') }} m
+    WHERE m.name_normalized IS NOT NULL
+      AND LENGTH(m.name_normalized) > 1
 ),
-parent_prefix AS (
-    SELECT e.employer_id, pc.parent_name
+msha_agg AS (
+    SELECT
+        mk.name_normalized,
+        mk.state,
+        COUNT(DISTINCT mk.violation_no) AS msha_violations_5yr,
+        SUM(mk.proposed_penalty) AS msha_assessed_penalties
+    FROM msha_with_key mk
+    WHERE mk.violation_date >= CURRENT_DATE - INTERVAL '5 years'
+    GROUP BY mk.name_normalized, mk.state
+),
+
+-- TODO: OFCCP + OFLC — waiting on data.dol.gov bulk download URLs
+-- These datasets are NOT on DOL API v4. Need to find download links
+-- on the new DOL Open Data Portal (launched Feb 2026).
+-- Models exist at: staging/stg_ofccp_evaluations.sql, silver/ofccp_norm.sql
+--                  staging/stg_oflc_disclosure.sql, silver/oflc_norm.sql
+-- Uncomment these CTEs once data is downloaded and loaded.
+
+-- Parent company matching (display-only, never merges profiles)
+-- Curated list of ~90 national chains with prefix matching
+-- Small enough that LIKE scan is instant
+parent_raw AS (
+    SELECT e.employer_id, pc.parent_name,
+           -- Rank by longest pattern match (more specific = better)
+           ROW_NUMBER() OVER (
+               PARTITION BY e.employer_id
+               ORDER BY LENGTH(pc.name_pattern) DESC
+           ) AS rn
     FROM employer_osha e
     INNER JOIN {{ ref('parent_companies') }} pc
         ON e.name_normalized LIKE pc.name_pattern || '%'
-        AND pc.match_type = 'prefix'
-),
-parent_combined AS (
-    SELECT employer_id, parent_name FROM parent_exact
-    UNION ALL
-    SELECT employer_id, parent_name FROM parent_prefix
-    WHERE employer_id NOT IN (SELECT employer_id FROM parent_exact)
 ),
 parent_match AS (
-    SELECT DISTINCT employer_id, parent_name FROM parent_combined
+    SELECT employer_id, parent_name FROM parent_raw WHERE rn = 1
 ),
 
 -- Location count per parent or per normalized name
@@ -230,6 +251,15 @@ SELECT
     COALESCE(w.whd_cases_5yr, 0) AS whd_cases_5yr,
     COALESCE(w.whd_backwages_total, 0) AS whd_backwages_total,
     COALESCE(w.whd_ee_violated_total, 0) AS whd_ee_violated_total,
+
+    -- MSHA fields (matched by name + state — MSHA doesn't have zip)
+    COALESCE(msha.msha_violations_5yr, 0) AS msha_violations_5yr,
+    COALESCE(msha.msha_assessed_penalties, 0) AS msha_assessed_penalties,
+
+    -- OFCCP + OFLC: TODO — waiting on data download
+    -- COALESCE(ofccp.ofccp_evaluations, 0) AS ofccp_evaluations,
+    -- COALESCE(ofccp.ofccp_violations_found, false) AS ofccp_violations_found,
+    -- COALESCE(oflc.oflc_lca_count, 0) AS oflc_lca_count,
 
     -- Parent company name (display-only)
     pm.parent_name,
@@ -297,6 +327,10 @@ SELECT
 
 FROM employer_osha e
 LEFT JOIN whd_agg w ON e.employer_id = w.employer_id
+LEFT JOIN msha_agg msha ON e.name_normalized = msha.name_normalized AND e.state = msha.state
+-- TODO: uncomment when OFCCP/OFLC data is downloaded
+-- LEFT JOIN ofccp_agg ofccp ON e.name_normalized = ofccp.name_normalized AND e.state = ofccp.state AND e.zip5 = ofccp.zip5
+-- LEFT JOIN oflc_agg oflc ON e.name_normalized = oflc.name_normalized AND e.state = oflc.state AND e.zip5 = oflc.zip5
 LEFT JOIN trend_1yr t1 ON e.employer_id = t1.employer_id
 LEFT JOIN trend_3yr t3 ON e.employer_id = t3.employer_id
 LEFT JOIN {{ ref('naics_2022') }} n ON e.naics_code = n.naics_code

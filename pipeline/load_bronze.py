@@ -36,7 +36,11 @@ def main():
     con.execute("SET memory_limit='20GB'")
     con.execute("SET threads=8")
 
-    sources = ["osha_inspections", "osha_violations", "whd_actions"]
+    sources = [
+        "osha_inspections", "osha_violations", "whd_actions",
+        "msha_mines", "msha_violations", "msha_inspections",
+        "ofccp_evaluations", "oflc_disclosure",
+    ]
 
     for source in sources:
         parquet_path = find_latest_parquet(source)

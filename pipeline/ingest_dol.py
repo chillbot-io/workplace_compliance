@@ -74,6 +74,11 @@ SOURCES = {
             "bw_atp_amt", "ee_violtd_cnt", "case_id",
         ],
     },
+    # OFCCP and OFLC are NOT on the DOL API v4.
+    # Use separate bulk download scripts:
+    #   ingest_msha.py  — MSHA mine safety (arlweb.msha.gov)
+    #   ingest_ofccp.py — OFCCP compliance (enforcedata.dol.gov)  [TODO]
+    #   ingest_oflc.py  — OFLC labor certs (DOL data catalog)    [TODO]
 }
 
 

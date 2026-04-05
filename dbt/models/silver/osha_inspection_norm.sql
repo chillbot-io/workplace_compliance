@@ -38,6 +38,7 @@ SELECT
     i.open_date,
     i.close_case_date,
     i.insp_type,
+    pa.address_key,
     COALESCE(v.violation_count, 0) AS violation_count,
     COALESCE(v.willful_count, 0) AS willful_count,
     COALESCE(v.repeat_count, 0) AS repeat_count,
@@ -47,3 +48,4 @@ SELECT
     v.avg_gravity
 FROM inspections i
 LEFT JOIN violation_agg v ON i.activity_nr = v.activity_nr
+LEFT JOIN osha_address_keys pa ON CAST(i.activity_nr AS VARCHAR) = CAST(pa.activity_nr AS VARCHAR)
