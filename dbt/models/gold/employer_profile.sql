@@ -29,7 +29,7 @@ whd AS (
       AND LENGTH(name_normalized) > 2
 ),
 
--- All unique employer keys from sources with 5-year activity
+-- All unique employer keys from all sources, all time
 all_employer_keys AS (
     SELECT DISTINCT
         name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS employer_key,
@@ -37,7 +37,6 @@ all_employer_keys AS (
         site_state AS state,
         zip5
     FROM osha
-    WHERE open_date >= CURRENT_DATE - INTERVAL '5 years'
 
     UNION
 
@@ -47,7 +46,6 @@ all_employer_keys AS (
         state,
         zip5
     FROM whd
-    WHERE findings_end_date >= CURRENT_DATE - INTERVAL '5 years'
 ),
 
 -- Generate stable employer_id UUIDs from employer_key
@@ -71,12 +69,11 @@ employer_ids AS (
 -- STEP 2: Aggregate each source per employer
 -- ══════════════════════════════════════════════════════════
 
--- OSHA 5-year aggregation
+-- OSHA all-time aggregation
 osha_with_key AS (
     SELECT o.*,
         name_normalized || '|' || COALESCE(site_state, '') || '|' || COALESCE(zip5, '') AS employer_key
     FROM osha o
-    WHERE open_date >= CURRENT_DATE - INTERVAL '5 years'
 ),
 osha_agg AS (
     SELECT
@@ -111,12 +108,11 @@ osha_3yr AS (
     GROUP BY employer_key
 ),
 
--- WHD aggregation
+-- WHD all-time aggregation
 whd_with_key AS (
     SELECT w.*,
         w.name_normalized || '|' || COALESCE(w.state, '') || '|' || COALESCE(w.zip5, '') AS employer_key
     FROM whd w
-    WHERE w.findings_end_date >= CURRENT_DATE - INTERVAL '5 years'
 ),
 whd_agg AS (
     SELECT
@@ -141,7 +137,6 @@ msha_agg AS (
     FROM {{ ref('msha_violation_norm') }} mk
     WHERE mk.name_normalized IS NOT NULL
       AND LENGTH(mk.name_normalized) > 1
-      AND mk.violation_date >= CURRENT_DATE - INTERVAL '5 years'
     GROUP BY mk.name_normalized, mk.state
 ),
 
